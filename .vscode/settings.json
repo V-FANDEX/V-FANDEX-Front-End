@@ -1,0 +1,13 @@
+{
+  "files.exclude": {
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/*.tsbuildinfo": true,
+    "**/vite.config.d.ts": true,
+    "**/vite.config.js": true
+  },
+  "search.exclude": {
+    "**/dist": true,
+    "**/node_modules": true
+  }
+}

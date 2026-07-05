@@ -1,4 +1,4 @@
-import type { ConditionalOrder, Market, RankingEntry, ScenarioLog, SeasonInfo, Stock, Transaction, UserAccount } from '../types';
+import type { ConditionalOrder, DividendSchedule, Market, RankingEntry, ScenarioLog, SeasonInfo, Stock, Transaction, UserAccount } from '../types';
 
 export const markets: Market[] = [
   {
@@ -188,6 +188,17 @@ export const season: SeasonInfo = {
   startsAt: '2026-07-01',
   endsAt: '2026-08-31',
   day: 4,
+};
+
+export const dividendSchedule: DividendSchedule = {
+  enabled: true,
+  frequency: 'daily',
+  payoutTime: '12:00',
+  timezone: 'UTC',
+  nextPayoutAt: '2026-07-05T12:00:00Z',
+  eligiblePolicy: '보유자 전체',
+  status: 'active',
+  lastRunAt: '2026-07-04T12:00:00Z',
 };
 
 export const scenarios: ScenarioLog[] = [

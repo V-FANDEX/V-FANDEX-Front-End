@@ -4,11 +4,11 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'rec
 import { Change, ScenarioCard, StatCard } from '../components/Cards';
 import { TradePanel } from '../components/TradePanel';
 import { useFandexStore } from '../store/useFandexStore';
-import { compact, currency } from '../utils/format';
+import { compact, currency, dateTime } from '../utils/format';
 
 export function StockDetailPage() {
   const { stockId } = useParams();
-  const { stocks, markets, user, scenarios, toggleFavorite, placeOrder, notify } = useFandexStore();
+  const { stocks, markets, user, scenarios, dividendSchedule, toggleFavorite, placeOrder, notify } = useFandexStore();
   const stock = stocks.find((item) => item.id === stockId);
   if (!stock) return <Navigate to="/markets" replace />;
   const market = markets.find((item) => item.id === stock.marketId);
@@ -83,12 +83,13 @@ export function StockDetailPage() {
           <div className="panel-title"><Info size={20} /><h2>배당금 정보</h2></div>
           <p className="panel-copy">
             {stock.dividendEnabled
-              ? `기본 배당률 ${stock.dividendRate}%가 적용됩니다. 수령 횟수가 늘수록 회복 보조 효과가 커집니다.`
+              ? `기본 배당률 ${stock.dividendRate}%가 적용됩니다. 관리자 설정 스케줄에 따라 자동 지급됩니다.`
               : '이 종목은 현재 배당을 지원하지 않습니다.'}
           </p>
-          <button className="primary-button" disabled={!stock.dividendEnabled} onClick={() => useFandexStore.getState().claimDividend(stock.id)}>
-            배당금 수령
-          </button>
+          <div className="schedule-summary compact">
+            <span>상태 <strong>{stock.dividendEnabled ? '자동 지급' : '미지원'}</strong></span>
+            <span>다음 지급 <strong>{stock.dividendEnabled && dividendSchedule ? dateTime(dividendSchedule.nextPayoutAt) : '-'}</strong></span>
+          </div>
         </article>
         <article className="panel">
           <div className="panel-title"><ReceiptText size={20} /><h2>최근 시나리오 로그</h2></div>

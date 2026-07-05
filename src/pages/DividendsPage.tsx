@@ -1,9 +1,9 @@
-import { Gift, RotateCcw } from 'lucide-react';
+import { CalendarClock, Gift, RotateCcw } from 'lucide-react';
 import { useFandexStore } from '../store/useFandexStore';
 import { currency, dateTime } from '../utils/format';
 
 export function DividendsPage() {
-  const { user, stocks, transactions, claimDividend } = useFandexStore();
+  const { user, stocks, transactions, dividendSchedule } = useFandexStore();
   const dividendStocks = user?.holdings
     .map((holding) => ({ holding, stock: stocks.find((stock) => stock.id === holding.stockId) }))
     .filter((row) => row.stock?.dividendEnabled) ?? [];
@@ -14,8 +14,17 @@ export function DividendsPage() {
       <header className="page-header">
         <span className="eyebrow">Recovery System</span>
         <h1>배당금 센터</h1>
-        <p>수령 횟수가 늘어날수록 배당률이 강화되어 손실 회복을 돕는 보조 시스템입니다.</p>
+        <p>관리자가 설정한 지급 스케줄에 따라 배당금이 자동 지급됩니다.</p>
       </header>
+      <section className="panel dividend-schedule-panel">
+        <div className="panel-title"><CalendarClock size={20} /><h2>자동 지급 스케줄</h2></div>
+        <div className="schedule-summary">
+          <span>상태 <strong>{dividendSchedule?.status === 'active' ? '활성' : '일시정지'}</strong></span>
+          <span>지급 주기 <strong>{formatFrequency(dividendSchedule?.frequency)}</strong></span>
+          <span>지급 시각 <strong>{dividendSchedule?.payoutTime} {dividendSchedule?.timezone}</strong></span>
+          <span>다음 지급 <strong>{dividendSchedule ? dateTime(dividendSchedule.nextPayoutAt) : '-'}</strong></span>
+        </div>
+      </section>
       <section className="dividend-grid">
         {dividendStocks.map(({ holding, stock }) => {
           if (!stock) return null;
@@ -23,8 +32,8 @@ export function DividendsPage() {
           return (
             <article className="dividend-card" key={stock.id}>
               <div className="panel-title"><Gift size={20} /><h2>{stock.name}</h2></div>
-              <p>기본 배당률 {stock.dividendRate}% · 예상 수령액 {currency(expected)}</p>
-              <button className="primary-button" onClick={() => claimDividend(stock.id)}>배당금 수령</button>
+              <p>기본 배당률 {stock.dividendRate}% · 다음 자동 지급 예상액 {currency(expected)}</p>
+              <span className="pill cyan">자동 지급 예정</span>
             </article>
           );
         })}
@@ -44,4 +53,11 @@ export function DividendsPage() {
       </section>
     </div>
   );
+}
+
+function formatFrequency(frequency?: string) {
+  if (frequency === 'daily') return '매일';
+  if (frequency === 'weekly') return '매주';
+  if (frequency === 'monthly') return '매월';
+  return '-';
 }

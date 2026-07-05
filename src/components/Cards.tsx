@@ -47,13 +47,13 @@ export function RankingCard({ entry, highlight }: { entry: RankingEntry; highlig
   return (
     <article className={highlight ? 'ranking-card highlight' : 'ranking-card'}>
       <span className="rank">#{entry.rank}</span>
-      <div>
+      <div className="ranking-identity">
         <strong>{entry.name}</strong>
         <small>{entry.role === 'ai' ? 'AI 계정' : entry.role === 'admin' ? '관리자' : '사용자'}</small>
       </div>
       {entry.role === 'ai' && <span className="pill purple">AI</span>}
-      <span>{currency(entry.totalAssets)}</span>
-      <Change value={entry.returnRate} />
+      <span className="ranking-assets">{currency(entry.totalAssets)}</span>
+      <span className="ranking-return"><Change value={entry.returnRate} /></span>
     </article>
   );
 }

@@ -1,4 +1,4 @@
-import { conditionalOrders, currentUser, markets, rankings, scenarios, season, stocks, transactions } from './mockData';
+import { conditionalOrders, currentUser, dividendSchedule, markets, rankings, scenarios, season, stocks, transactions } from './mockData';
 
 const latency = 120;
 
@@ -17,4 +17,5 @@ export const fandexApi = {
   getScenarios: () => wait(scenarios),
   getConditionalOrders: () => wait(conditionalOrders),
   getTransactions: () => wait(transactions),
+  getDividendSchedule: () => wait(dividendSchedule),
 };

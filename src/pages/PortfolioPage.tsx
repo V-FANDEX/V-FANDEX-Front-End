@@ -67,12 +67,12 @@ export function PortfolioPage() {
           </div>
           {holdingRows.map((row) => (
             <div className="stock-row" key={row.stockId}>
-              <strong>{row.stock.name}</strong>
-              <span>{row.quantity.toLocaleString('ko-KR')}주</span>
-              <span>{currency(row.averagePrice)}</span>
-              <span>{currency(row.stock.price)}</span>
-              <strong className={row.pnl >= 0 ? 'positive' : 'negative'}>{currency(row.pnl)}</strong>
-              <span className={row.returnRate >= 0 ? 'positive' : 'negative'}>{row.returnRate.toFixed(2)}%</span>
+              <strong className="portfolio-name">{row.stock.name}</strong>
+              <span className="portfolio-metric" data-label="보유 수량">{row.quantity.toLocaleString('ko-KR')}주</span>
+              <span className="portfolio-metric" data-label="평균 매수가">{currency(row.averagePrice)}</span>
+              <span className="portfolio-metric" data-label="현재가">{currency(row.stock.price)}</span>
+              <strong className={`portfolio-metric ${row.pnl >= 0 ? 'positive' : 'negative'}`} data-label="평가 손익">{currency(row.pnl)}</strong>
+              <span className={`portfolio-metric ${row.returnRate >= 0 ? 'positive' : 'negative'}`} data-label="수익률">{row.returnRate.toFixed(2)}%</span>
             </div>
           ))}
         </div>

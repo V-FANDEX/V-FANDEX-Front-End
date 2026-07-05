@@ -1,11 +1,13 @@
-import { LogIn, LogOut, Medal, Menu, Shield, WalletCards } from 'lucide-react';
+import { LogIn, LogOut, Medal, Menu, Shield, UserPlus, WalletCards } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
+import { AuthModal, type AuthMode } from './AuthModal';
 import { useFandexStore } from '../store/useFandexStore';
 import { currency } from '../utils/format';
 
 const navItems = [
-  { to: '/', label: '홈' },
+  { to: '/', label: '소개' },
+  { to: '/dashboard', label: '대시보드' },
   { to: '/markets', label: '장' },
   { to: '/portfolio', label: '포트폴리오' },
   { to: '/orders', label: '조건주문' },
@@ -16,6 +18,7 @@ const navItems = [
 export function Layout() {
   const { user, stocks, toast, clearToast } = useFandexStore();
   const [open, setOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>();
   const assetValue =
     user?.holdings.reduce((sum, holding) => {
       const stock = stocks.find((item) => item.id === holding.stockId);
@@ -58,18 +61,28 @@ export function Layout() {
         </nav>
         <div className="account-strip">
           <WalletCards size={18} />
-          <span>{currency(assetValue)}</span>
-          <button className="ghost-button">
-            <LogIn size={15} /> 로그인
-          </button>
-          <button className="ghost-button muted">
-            <LogOut size={15} /> 로그아웃
-          </button>
+          <span>{user ? currency(assetValue) : '게스트 모드'}</span>
+          {user && <span className={user.role === 'admin' ? 'account-badge admin' : 'account-badge'}>{user.role === 'admin' ? 'ADMIN' : 'USER'} · {user.name}</span>}
+          {user ? (
+            <button className="ghost-button muted" onClick={() => setAuthMode('logout')}>
+              <LogOut size={15} /> 로그아웃
+            </button>
+          ) : (
+            <>
+              <button className="ghost-button" onClick={() => setAuthMode('login')}>
+                <LogIn size={15} /> 로그인
+              </button>
+              <button className="ghost-button muted" onClick={() => setAuthMode('signup')}>
+                <UserPlus size={15} /> 회원가입
+              </button>
+            </>
+          )}
         </div>
       </header>
       <main>
         <Outlet />
       </main>
+      {authMode && <AuthModal initialMode={authMode} onClose={() => setAuthMode(undefined)} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

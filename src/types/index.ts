@@ -63,6 +63,17 @@ export interface ConditionalOrder {
   executedAt?: string;
 }
 
+export interface DividendSchedule {
+  enabled: boolean;
+  frequency: 'daily' | 'weekly' | 'monthly';
+  payoutTime: string;
+  timezone: string;
+  nextPayoutAt: string;
+  eligiblePolicy: string;
+  status: 'active' | 'paused';
+  lastRunAt?: string;
+}
+
 export interface UserAccount {
   id: string;
   name: string;

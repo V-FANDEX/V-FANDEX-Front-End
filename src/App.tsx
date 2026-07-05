@@ -5,6 +5,7 @@ import { AdminPage } from './pages/AdminPage';
 import { ConditionalOrdersPage } from './pages/ConditionalOrdersPage';
 import { DividendsPage } from './pages/DividendsPage';
 import { HomePage } from './pages/HomePage';
+import { IntroPage } from './pages/IntroPage';
 import { MarketListPage } from './pages/MarketListPage';
 import { PortfolioPage } from './pages/PortfolioPage';
 import { RankingsPage } from './pages/RankingsPage';
@@ -32,7 +33,8 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<HomePage />} />
+        <Route index element={<IntroPage />} />
+        <Route path="dashboard" element={<HomePage />} />
         <Route path="markets" element={<MarketListPage />} />
         <Route path="markets/:marketId" element={<StockListPage />} />
         <Route path="stocks/:stockId" element={<StockDetailPage />} />

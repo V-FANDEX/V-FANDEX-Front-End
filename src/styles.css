@@ -51,6 +51,120 @@ button {
   cursor: pointer;
 }
 
+.pop-bounce {
+  animation: popBounce 420ms cubic-bezier(0.22, 1.35, 0.42, 1);
+  transform-origin: center;
+  will-change: transform;
+}
+
+.click-pop-effect {
+  position: fixed;
+  z-index: 100;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.click-pop-effect::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border: 2px solid rgba(56, 213, 255, 0.72);
+  border-radius: 999px;
+  box-shadow:
+    0 0 16px rgba(56, 213, 255, 0.34),
+    inset 0 0 14px rgba(124, 92, 255, 0.2);
+  animation: clickRipple 520ms ease-out forwards;
+}
+
+.click-pop-effect i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  box-shadow: 0 0 12px rgba(56, 213, 255, 0.5);
+  animation: clickSpark 520ms ease-out forwards;
+}
+
+.click-pop-effect i:nth-child(1) {
+  --spark-x: -18px;
+  --spark-y: -12px;
+}
+
+.click-pop-effect i:nth-child(2) {
+  --spark-x: 16px;
+  --spark-y: -14px;
+}
+
+.click-pop-effect i:nth-child(3) {
+  --spark-x: -14px;
+  --spark-y: 14px;
+}
+
+.click-pop-effect i:nth-child(4) {
+  --spark-x: 18px;
+  --spark-y: 12px;
+}
+
+@keyframes popBounce {
+  0% {
+    transform: scale(1);
+  }
+
+  34% {
+    transform: scale(0.92);
+  }
+
+  58% {
+    transform: scale(1.075);
+  }
+
+  76% {
+    transform: scale(0.985);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes clickRipple {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.35);
+  }
+
+  68% {
+    opacity: 0.42;
+    transform: scale(1.35);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+}
+
+@keyframes clickSpark {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.6);
+  }
+
+  30% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--spark-x)), calc(-50% + var(--spark-y))) scale(0.25);
+  }
+}
+
 h1,
 h2,
 h3,
@@ -70,6 +184,15 @@ label {
 
 svg {
   flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pop-bounce,
+  .click-pop-effect,
+  .click-pop-effect::before,
+  .click-pop-effect i {
+    animation: none;
+  }
 }
 
 button:disabled {

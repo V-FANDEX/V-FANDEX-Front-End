@@ -31,6 +31,64 @@ export function Layout() {
     return () => window.clearTimeout(timer);
   }, [toast, clearToast]);
 
+  useEffect(() => {
+    const selector = [
+      'button:not(:disabled)',
+      'a',
+      '[role="button"]',
+      '.market-card',
+      '.market-graph-card',
+      '.stock-row:not(.table-head)',
+      '.ranking-card',
+      '.scenario-card',
+      '.intro-feature',
+      '.dividend-card',
+    ].join(',');
+
+    const createClickEffect = (x: number, y: number) => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+      const effect = document.createElement('span');
+      effect.className = 'click-pop-effect';
+      effect.style.left = `${x}px`;
+      effect.style.top = `${y}px`;
+
+      for (let index = 0; index < 4; index += 1) {
+        effect.appendChild(document.createElement('i'));
+      }
+
+      document.body.appendChild(effect);
+      window.setTimeout(() => effect.remove(), 620);
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target instanceof Element ? event.target : undefined;
+      const interactive = target?.closest(selector);
+      if (!(interactive instanceof HTMLElement) || interactive.classList.contains('no-pop')) return;
+
+      interactive.classList.remove('pop-bounce');
+      void interactive.offsetWidth;
+      interactive.classList.add('pop-bounce');
+      createClickEffect(event.clientX, event.clientY);
+    };
+
+    const handleAnimationEnd = (event: AnimationEvent) => {
+      if (event.animationName !== 'popBounce') return;
+      if (event.target instanceof HTMLElement) {
+        event.target.classList.remove('pop-bounce');
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('animationend', handleAnimationEnd, true);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('animationend', handleAnimationEnd, true);
+    };
+  }, []);
+
   return (
     <div className="app-shell">
       <header className="topbar">

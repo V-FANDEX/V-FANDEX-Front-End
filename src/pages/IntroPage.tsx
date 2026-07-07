@@ -1,4 +1,4 @@
-import { ArrowRight, Bot, CalendarClock, ChevronRight, Coins, Gauge, LineChart, Play, Sparkles, Trophy, WalletCards, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowRight, Bot, CalendarClock, ChevronRight, Coins, Gauge, LineChart, Play, Sparkles, Trophy, WalletCards, Zap, type LucideIcon } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { MarketUniverse } from '../components/MarketUniverse';
@@ -25,8 +25,14 @@ export function IntroPage() {
   const [sentiment, setSentiment] = useState(72);
   const [volatility, setVolatility] = useState(44);
   const totalCap = markets.reduce((sum, market) => sum + market.marketCap, 0);
-  const projectedMove = useMemo(() => ((sentiment - 50) * 0.08 + volatility * 0.035).toFixed(2), [sentiment, volatility]);
+  const projectedMoveValue = useMemo(() => (sentiment - 50) * 0.08 + volatility * 0.035, [sentiment, volatility]);
+  const projectedMove = `${projectedMoveValue >= 0 ? '+' : ''}${projectedMoveValue.toFixed(2)}%`;
+  const marketPulse = Math.min(100, Math.round(sentiment * 0.62 + volatility * 0.38));
+  const tradePulse = Math.round((markets[activeMarket]?.volume ?? 0) * (0.72 + marketPulse / 100));
+  const riskLabel = volatility >= 72 ? '급변' : volatility >= 46 ? '활성' : '안정';
+  const heatLabel = sentiment >= 72 ? '과열' : sentiment >= 46 ? '관심' : '냉각';
   const active = introMarkets[activeMarket];
+  const activeMarketSummary = markets[activeMarket];
 
   return (
     <div className="intro-page">
@@ -61,20 +67,78 @@ export function IntroPage() {
 
       <section className="intro-dashboard" id="intro-simulator">
         <article className="intro-sim-panel">
-          <div className="panel-title"><LineChart size={20} /><h2>실시간 감정 시뮬레이터</h2></div>
-          <p>{active.name}의 팬덤 열기와 변동성을 조절해 예상 시장 반응을 확인하세요.</p>
-          <label className="intro-slider">
-            <span>팬덤 열기 <strong>{sentiment}</strong></span>
-            <input type="range" min="0" max="100" value={sentiment} onChange={(event) => setSentiment(Number(event.target.value))} />
-          </label>
-          <label className="intro-slider">
-            <span>변동성 <strong>{volatility}</strong></span>
-            <input type="range" min="0" max="100" value={volatility} onChange={(event) => setVolatility(Number(event.target.value))} />
-          </label>
+          <div className="intro-sim-header">
+            <div className="panel-title"><LineChart size={20} /><h2>시장 시뮬레이션</h2></div>
+            <span className="intro-live-pill">LIVE MODEL</span>
+          </div>
+
+          <div className="intro-sim-market">
+            <span>{String(activeMarket + 1).padStart(2, '0')}</span>
+            <div>
+              <strong>{active.name}</strong>
+              <small>{active.tone}</small>
+            </div>
+            <em>{activeMarketSummary ? compact(activeMarketSummary.volume) : '0'} VOL</em>
+          </div>
+
+          <div className="intro-control-stack">
+            <label className="intro-slider">
+              <span><em>팬덤 열기</em><strong>{sentiment}</strong></span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={sentiment}
+                style={{ background: `linear-gradient(90deg, var(--cyan) ${sentiment}%, rgba(255, 255, 255, 0.12) ${sentiment}%)` }}
+                onChange={(event) => setSentiment(Number(event.target.value))}
+              />
+            </label>
+            <label className="intro-slider">
+              <span><em>변동성</em><strong>{volatility}</strong></span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={volatility}
+                style={{ background: `linear-gradient(90deg, var(--purple) ${volatility}%, rgba(255, 255, 255, 0.12) ${volatility}%)` }}
+                onChange={(event) => setVolatility(Number(event.target.value))}
+              />
+            </label>
+          </div>
+
+          <div className="intro-sim-meters">
+            <span>
+              <small>시장 온도</small>
+              <strong>{heatLabel}</strong>
+              <i><b style={{ width: `${sentiment}%` }} /></i>
+            </span>
+            <span>
+              <small>체결 압력</small>
+              <strong>{compact(tradePulse)}</strong>
+              <i><b style={{ width: `${marketPulse}%` }} /></i>
+            </span>
+            <span>
+              <small>리스크</small>
+              <strong>{riskLabel}</strong>
+              <i><b style={{ width: `${volatility}%` }} /></i>
+            </span>
+          </div>
+
           <div className="intro-sim-result">
-            <span>예상 변동률</span>
-            <strong>+{projectedMove}%</strong>
-            <small>시나리오 강도와 AI 거래량에 따라 실제 결과는 달라질 수 있습니다.</small>
+            <div>
+              <span>예상 변동률</span>
+              <strong className={projectedMoveValue >= 0 ? 'positive' : 'negative'}>{projectedMove}</strong>
+            </div>
+            <div className="intro-result-score" style={{ background: `conic-gradient(var(--cyan) ${marketPulse * 3.6}deg, rgba(255, 255, 255, 0.08) 0deg)` }}>
+              <span>{marketPulse}</span>
+            </div>
+            <small>시나리오 강도, 유저 주문, AI 계정의 거래 성향이 함께 반영됩니다.</small>
+          </div>
+
+          <div className="intro-sim-tags" aria-label="예상 시장 신호">
+            <span><Zap size={14} /> {heatLabel} 신호</span>
+            <span><Activity size={14} /> {riskLabel} 장세</span>
+            <span><Gauge size={14} /> {projectedMoveValue >= 0 ? '매수 우위' : '매도 우위'}</span>
           </div>
         </article>
 

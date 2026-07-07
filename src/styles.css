@@ -1306,6 +1306,27 @@ main {
   background: rgba(255, 255, 255, 0.032);
 }
 
+.stock-row:not(.table-head) {
+  border: 1px solid transparent;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.stock-row:not(.table-head):hover {
+  transform: translateY(-2px);
+  border-color: rgba(56, 213, 255, 0.16);
+  background: rgba(18, 30, 48, 0.92);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+}
+
+.stock-list-metric,
+.order-metric {
+  min-width: 0;
+}
+
 .portfolio-table .stock-row {
   grid-template-columns: minmax(180px, 1.4fr) repeat(5, minmax(110px, 1fr));
 }
@@ -1516,6 +1537,11 @@ main {
   gap: 12px;
   flex-wrap: wrap;
   margin-bottom: 14px;
+}
+
+.toolbar select {
+  flex: 0 0 220px;
+  width: 220px;
 }
 
 .search-box,
@@ -2653,6 +2679,12 @@ textarea {
     flex-direction: column;
   }
 
+  .toolbar select,
+  .search-box {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
   .ranking-card {
     grid-template-columns: 44px minmax(0, 1fr) auto;
   }
@@ -2715,6 +2747,95 @@ textarea {
 
   .history-row small {
     grid-column: 1 / -1;
+  }
+
+  .stock-table:not(.portfolio-table) {
+    overflow-x: visible;
+  }
+
+  .stock-table:not(.portfolio-table) .table-head {
+    display: none;
+  }
+
+  .stock-list-row {
+    min-width: 0;
+    grid-template-columns: 64px minmax(0, 1fr) 38px;
+    gap: 10px 12px;
+    align-items: center;
+    padding: 14px;
+  }
+
+  .stock-list-row .stock-title {
+    grid-column: 1 / 3;
+  }
+
+  .stock-list-row .stock-title img {
+    width: 58px;
+    height: 58px;
+  }
+
+  .stock-list-row .stock-favorite-button {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .stock-list-metric {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 34px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    text-align: right;
+    line-height: 1.3;
+  }
+
+  .stock-list-metric::before,
+  .order-metric::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+  }
+
+  .stock-list-metric .change {
+    justify-content: flex-end;
+  }
+
+  .order-table .conditional-order-row {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) 38px;
+    gap: 10px 12px;
+    align-items: center;
+    padding: 14px;
+  }
+
+  .conditional-order-row .stock-title {
+    grid-column: 1;
+  }
+
+  .conditional-order-row .order-cancel-button {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .order-metric {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 34px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    text-align: right;
+    line-height: 1.35;
   }
 
   .portfolio-table {

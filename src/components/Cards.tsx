@@ -23,7 +23,7 @@ export function StockRow({
   onFavorite: () => void;
 }) {
   return (
-    <div className="stock-row">
+    <div className="stock-row stock-list-row">
       <Link to={`/stocks/${stock.id}`} className="stock-title">
         <img src={stock.imageUrl} alt="" />
         <span>
@@ -31,12 +31,12 @@ export function StockRow({
           <small>{stock.symbol} · {stock.tags.join(' / ')}</small>
         </span>
       </Link>
-      <strong>{currency(stock.price)}</strong>
-      <Change value={stock.changeRate} />
-      <span>{compact(stock.volume)}</span>
-      <span>{compact(stock.marketCap)}</span>
-      <span className={stock.dividendEnabled ? 'pill cyan' : 'pill'}>{stock.dividendEnabled ? '배당' : '미지원'}</span>
-      <button className="icon-button" onClick={onFavorite} aria-label="즐겨찾기">
+      <strong className="stock-list-metric" data-label="현재가">{currency(stock.price)}</strong>
+      <span className="stock-list-metric" data-label="등락률"><Change value={stock.changeRate} /></span>
+      <span className="stock-list-metric" data-label="거래량">{compact(stock.volume)}</span>
+      <span className="stock-list-metric" data-label="시가총액">{compact(stock.marketCap)}</span>
+      <span className="stock-list-metric" data-label="배당"><span className={stock.dividendEnabled ? 'pill cyan' : 'pill'}>{stock.dividendEnabled ? '배당' : '미지원'}</span></span>
+      <button className="icon-button stock-favorite-button" onClick={onFavorite} aria-label="즐겨찾기">
         {favorite ? <Heart size={18} fill="currentColor" /> : <HeartOff size={18} />}
       </button>
     </div>

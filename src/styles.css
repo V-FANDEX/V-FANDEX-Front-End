@@ -1073,6 +1073,15 @@ main {
   margin-top: 18px;
 }
 
+.dividend-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
 .schedule-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1419,9 +1428,9 @@ main {
 }
 
 .stock-row {
-  min-width: 760px;
+  min-width: 860px;
   display: grid;
-  grid-template-columns: minmax(210px, 1.5fr) minmax(100px, 120px) minmax(100px, 110px) minmax(88px, 100px) minmax(106px, 120px) minmax(78px, 90px) 46px;
+  grid-template-columns: minmax(210px, 1.5fr) minmax(100px, 120px) minmax(100px, 110px) minmax(88px, 100px) minmax(106px, 120px) minmax(84px, 96px) minmax(78px, 90px) 46px;
   gap: 12px;
   align-items: center;
   padding: 12px;
@@ -1518,6 +1527,11 @@ main {
 .pill.purple {
   color: #d9d0ff;
   background: rgba(124, 92, 255, 0.18);
+}
+
+.pill.negative {
+  color: var(--red);
+  background: rgba(255, 100, 124, 0.12);
 }
 
 .scenario-card {
@@ -1861,6 +1875,12 @@ textarea {
   width: min(720px, 100%);
 }
 
+.scenario-result-modal {
+  width: min(980px, calc(100vw - 32px));
+  max-height: min(86vh, 860px);
+  overflow: auto;
+}
+
 .admin-request-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 38px;
@@ -1883,6 +1903,47 @@ textarea {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.scenario-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.scenario-result-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.034);
+}
+
+.scenario-result-section.wide {
+  grid-column: 1 / -1;
+}
+
+.scenario-result-section h4 {
+  margin: 0;
+}
+
+.scenario-result-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.scenario-result-row small {
+  grid-column: 1 / -1;
+  color: var(--muted);
 }
 
 .admin-request-field.wide,
@@ -2527,6 +2588,12 @@ textarea {
   text-align: right;
 }
 
+.admin-dividend-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .admin-action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3026,7 +3093,8 @@ textarea {
   .admin-kpi-grid,
   .admin-form-fields,
   .admin-action-grid,
-  .admin-request-fields {
+  .admin-request-fields,
+  .scenario-result-grid {
     grid-template-columns: 1fr;
   }
 

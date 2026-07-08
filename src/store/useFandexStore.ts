@@ -1,7 +1,21 @@
 import { create } from 'zustand';
 import { authApi, type LoginPayload, type SignupPayload } from '../services/authApi';
-import { fandexApi } from '../services/fandexApi';
-import type { ConditionalOrder, DividendSchedule, Market, RankingEntry, ScenarioLog, SeasonInfo, Stock, Transaction, UserAccount } from '../types';
+import { clearAuthToken, getErrorMessage } from '../services/apiClient';
+import { fandexApi, mergeUserData, type ConditionalOrderPayload } from '../services/fandexApi';
+import { enrichMarkets } from '../services/mappers';
+import type {
+  ConditionalOrder,
+  DividendSchedule,
+  Market,
+  RankingEntry,
+  ScenarioLog,
+  SeasonInfo,
+  Stock,
+  Transaction,
+  UserAccount,
+} from '../types';
+
+type OrderKind = 'buy' | 'sell';
 
 interface FandexState {
   markets: Market[];
@@ -16,13 +30,16 @@ interface FandexState {
   toast?: string;
   isReady: boolean;
   load: () => Promise<void>;
+  loadStocks: (params?: { marketId?: string; search?: string }) => Promise<void>;
   login: (payload: LoginPayload) => Promise<void>;
   signup: (payload: SignupPayload) => Promise<void>;
   logout: () => Promise<void>;
-  toggleFavorite: (stockId: string) => void;
-  placeOrder: (stockId: string, type: 'buy' | 'sell', quantity: number) => void;
+  toggleFavorite: (stockId: string) => Promise<void>;
+  placeOrder: (stockId: string, type: OrderKind, quantity: number) => Promise<void>;
+  createConditionalOrder: (payload: ConditionalOrderPayload) => Promise<void>;
+  claimDividend: (stockId?: string) => Promise<void>;
   updateDividendSchedule: (patch: Partial<DividendSchedule>) => void;
-  cancelConditionalOrder: (orderId: string) => void;
+  cancelConditionalOrder: (orderId: string) => Promise<void>;
   notify: (message: string) => void;
   clearToast: () => void;
 }
@@ -35,125 +52,178 @@ export const useFandexStore = create<FandexState>((set, get) => ({
   conditionalOrders: [],
   transactions: [],
   isReady: false,
+
   load: async () => {
-    const [marketsData, stocksData, userData, seasonData, rankingData, scenarioData, orderData, txData, scheduleData] = await Promise.all([
-      fandexApi.getMarkets(),
-      fandexApi.getStocks(),
-      fandexApi.getCurrentUser(),
-      fandexApi.getSeason(),
-      fandexApi.getRankings(),
-      fandexApi.getScenarios(),
-      fandexApi.getConditionalOrders(),
-      fandexApi.getTransactions(),
-      fandexApi.getDividendSchedule(),
-    ]);
+    try {
+      const [stocksData, marketsData, seasonData, rankingData, scenarioData] = await Promise.all([
+        fandexApi.getStocks(),
+        fandexApi.getMarkets(),
+        fandexApi.getSeason(),
+        fandexApi.getRankings(),
+        fandexApi.getScenarios(),
+      ]);
+      const [currentUser, portfolio, watchlist, orderData, tradeData, dividendData, scheduleData, myRanking] =
+        await Promise.all([
+          safe(fandexApi.getCurrentUser()),
+          safe(fandexApi.getPortfolio()),
+          safe(fandexApi.getWatchlist(), []),
+          safe(fandexApi.getConditionalOrders(), []),
+          safe(fandexApi.getTransactions(), []),
+          safe(fandexApi.getDividends(), []),
+          safe(fandexApi.getDividendSchedule()),
+          safe(fandexApi.getMyRanking()),
+        ]);
+      const transactions = [...(tradeData ?? []), ...(dividendData ?? [])].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+      const user = mergeUserData(currentUser, portfolio, watchlist ?? [], dividendData ?? []);
+      const rankings = upsertMyRanking(rankingData, myRanking, user);
 
-    set({
-      markets: marketsData,
-      stocks: stocksData,
-      user: userData,
-      season: seasonData,
-      rankings: rankingData,
-      scenarios: scenarioData,
-      conditionalOrders: orderData,
-      transactions: txData,
-      dividendSchedule: scheduleData,
-      isReady: true,
-    });
+      set({
+        markets: enrichMarkets(marketsData, stocksData),
+        stocks: stocksData,
+        user,
+        season: seasonData,
+        rankings,
+        scenarios: scenarioData,
+        conditionalOrders: orderData ?? [],
+        transactions,
+        dividendSchedule: scheduleData,
+        isReady: true,
+      });
+    } catch (error) {
+      set({
+        isReady: true,
+        toast: errorMessage(error),
+      });
+    }
   },
+
+  loadStocks: async (params) => {
+    try {
+      const stocks = await fandexApi.getStocks(params);
+      set({ stocks, markets: enrichMarkets(get().markets, stocks) });
+    } catch (error) {
+      set({ toast: errorMessage(error) });
+    }
+  },
+
   login: async (payload) => {
-    const user = await authApi.login(payload);
-    set({
-      user,
-      toast: `${user.name}님, 다시 오신 것을 환영합니다.`,
-    });
+    try {
+      const user = await authApi.login(payload);
+      set({ user, toast: `${user.name}님, 다시 오신 것을 환영합니다.` });
+      await get().load();
+    } catch (error) {
+      set({ toast: errorMessage(error) });
+      throw error;
+    }
   },
-  signup: async (payload) => {
-    const user = await authApi.signup(payload);
-    const totalAssets = user.cash;
-    const entry: RankingEntry = {
-      id: user.id,
-      name: user.name,
-      role: user.role,
-      rank: get().rankings.length + 1,
-      totalAssets,
-      returnRate: 0,
-      dividendTotal: 0,
-      tradeVolume: 0,
-    };
 
-    set({
-      user,
-      rankings: [...get().rankings, entry],
-      toast: `${user.name}님의 계정이 생성되었습니다.`,
-    });
+  signup: async (payload) => {
+    try {
+      const user = await authApi.signup(payload);
+      set({ user, toast: `${user.name}님의 계정이 생성되었습니다.` });
+      await get().load();
+    } catch (error) {
+      set({ toast: errorMessage(error) });
+      throw error;
+    }
   },
+
   logout: async () => {
     await authApi.logout();
     set({
       user: undefined,
+      conditionalOrders: [],
+      transactions: [],
       toast: '로그아웃되었습니다.',
     });
   },
-  toggleFavorite: (stockId) => {
+
+  toggleFavorite: async (stockId) => {
     const user = get().user;
-    if (!user) return;
+    if (!user) {
+      set({ toast: '즐겨찾기를 사용하려면 로그인이 필요합니다.' });
+      return;
+    }
+
     const exists = user.favoriteStockIds.includes(stockId);
-    set({
-      user: {
-        ...user,
-        favoriteStockIds: exists
-          ? user.favoriteStockIds.filter((id) => id !== stockId)
-          : [...user.favoriteStockIds, stockId],
-      },
-      toast: exists ? '즐겨찾기에서 제거했습니다.' : '즐겨찾기에 추가했습니다.',
-    });
+    try {
+      if (exists) {
+        await fandexApi.removeWatchlist(stockId);
+      } else {
+        await fandexApi.addWatchlist(stockId);
+      }
+      const favoriteStockIds = await fandexApi.getWatchlist();
+
+      set({
+        user: {
+          ...user,
+          favoriteStockIds,
+        },
+        toast: exists ? '즐겨찾기에서 제거했습니다.' : '즐겨찾기에 추가했습니다.',
+      });
+    } catch (error) {
+      set({ toast: errorMessage(error) });
+    }
   },
-  placeOrder: (stockId, type, quantity) => {
-    const user = get().user;
-    const stock = get().stocks.find((item) => item.id === stockId);
-    if (!user || !stock || quantity <= 0) return;
 
-    const total = stock.price * quantity;
-    const holding = user.holdings.find((item) => item.stockId === stockId);
-
-    if (type === 'buy' && user.cash < total) {
-      set({ toast: '잔액이 부족합니다.' });
+  placeOrder: async (stockId, type, quantity) => {
+    if (!get().user) {
+      set({ toast: '거래하려면 로그인이 필요합니다.' });
+      return;
+    }
+    if (quantity <= 0) {
+      set({ toast: '주문 수량을 1주 이상 입력해주세요.' });
       return;
     }
 
-    if (type === 'sell' && (!holding || holding.quantity < quantity)) {
-      set({ toast: '보유 수량이 부족합니다.' });
+    try {
+      const payload = { stockId, quantity, orderType: 'MARKET' as const };
+      if (type === 'buy') {
+        await fandexApi.buyStock(payload);
+      } else {
+        await fandexApi.sellStock(payload);
+      }
+
+      set({ toast: type === 'buy' ? '매수 주문이 체결되었습니다.' : '매도 주문이 체결되었습니다.' });
+      await get().load();
+    } catch (error) {
+      set({ toast: errorMessage(error) });
+    }
+  },
+
+  createConditionalOrder: async (payload) => {
+    if (!get().user) {
+      set({ toast: '조건 주문을 등록하려면 로그인이 필요합니다.' });
       return;
     }
 
-    const nextHoldings =
-      type === 'buy'
-        ? upsertHolding(user.holdings, stockId, quantity, stock.price)
-        : user.holdings
-            .map((item) => (item.stockId === stockId ? { ...item, quantity: item.quantity - quantity } : item))
-            .filter((item) => item.quantity > 0);
-
-    const tx: Transaction = {
-      id: `tx-${Date.now()}`,
-      stockId,
-      type,
-      quantity,
-      price: stock.price,
-      total,
-      createdAt: new Date().toISOString(),
-    };
-
-    set({
-      user: {
-        ...user,
-        cash: type === 'buy' ? user.cash - total : user.cash + total,
-        holdings: nextHoldings,
-      },
-      transactions: [tx, ...get().transactions],
-      toast: type === 'buy' ? '매수 주문이 체결되었습니다.' : '매도 주문이 체결되었습니다.',
-    });
+    try {
+      await fandexApi.createConditionalOrder(payload);
+      set({ toast: '조건 주문이 등록되었습니다.' });
+      const conditionalOrders = await fandexApi.getConditionalOrders();
+      set({ conditionalOrders });
+    } catch (error) {
+      set({ toast: errorMessage(error) });
+    }
   },
+
+  claimDividend: async (stockId) => {
+    if (!get().user) {
+      set({ toast: '배당금을 수령하려면 로그인이 필요합니다.' });
+      return;
+    }
+
+    try {
+      await fandexApi.claimDividend(stockId);
+      set({ toast: stockId ? '종목 배당금 수령 요청이 완료되었습니다.' : '시스템 배당금 수령 요청이 완료되었습니다.' });
+      await get().load();
+    } catch (error) {
+      set({ toast: errorMessage(error) });
+    }
+  },
+
   updateDividendSchedule: (patch) => {
     const current = get().dividendSchedule;
     if (!current) return;
@@ -162,26 +232,63 @@ export const useFandexStore = create<FandexState>((set, get) => ({
       toast: '배당 지급 스케줄이 업데이트되었습니다.',
     });
   },
-  cancelConditionalOrder: (orderId) => {
-    set({
-      conditionalOrders: get().conditionalOrders.map((order) =>
-        order.id === orderId ? { ...order, active: false } : order,
-      ),
-      toast: '조건 주문을 취소했습니다.',
-    });
+
+  cancelConditionalOrder: async (orderId) => {
+    try {
+      await fandexApi.cancelConditionalOrder(orderId);
+      set({
+        conditionalOrders: get().conditionalOrders.map((order) =>
+          order.id === orderId ? { ...order, active: false, status: 'CANCELLED' } : order,
+        ),
+        toast: '조건 주문을 취소했습니다.',
+      });
+    } catch (error) {
+      set({ toast: errorMessage(error) });
+    }
   },
+
   notify: (message) => set({ toast: message }),
   clearToast: () => set({ toast: undefined }),
 }));
 
-function upsertHolding(holdings: UserAccount['holdings'], stockId: string, quantity: number, price: number) {
-  const existing = holdings.find((item) => item.stockId === stockId);
-  if (!existing) return [...holdings, { stockId, quantity, averagePrice: price }];
+async function safe<T>(promise: Promise<T>, fallback?: T) {
+  try {
+    return await promise;
+  } catch (error) {
+    if (isUnauthorized(error)) {
+      clearAuthToken();
+      return fallback;
+    }
+    return fallback;
+  }
+}
 
-  return holdings.map((item) => {
-    if (item.stockId !== stockId) return item;
-    const totalQuantity = item.quantity + quantity;
-    const averagePrice = (item.averagePrice * item.quantity + price * quantity) / totalQuantity;
-    return { ...item, quantity: totalQuantity, averagePrice };
-  });
+function isUnauthorized(error: unknown) {
+  return Boolean(error && typeof error === 'object' && 'status' in error && (error as { status?: number }).status === 401);
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return getErrorMessage(error);
+}
+
+function upsertMyRanking(rankings: RankingEntry[], myRanking?: RankingEntry, user?: UserAccount) {
+  if (!myRanking && !user) return rankings;
+  const mine =
+    myRanking ??
+    (user && {
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      rank: rankings.length + 1,
+      totalAssets: user.totalAssetValue ?? user.cash,
+      cash: user.cash,
+      returnRate: 0,
+      dividendTotal: user.totalDividend,
+      tradeVolume: 0,
+    });
+
+  if (!mine) return rankings;
+  const exists = rankings.some((entry) => entry.id === mine.id);
+  return exists ? rankings.map((entry) => (entry.id === mine.id ? { ...entry, ...mine } : entry)) : [...rankings, mine];
 }

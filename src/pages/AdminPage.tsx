@@ -22,7 +22,7 @@ import {
   WalletCards,
   X,
 } from 'lucide-react';
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   Area,
   AreaChart,
@@ -37,11 +37,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Change, StatCard } from '../components/Cards';
+import { StatCard } from '../components/Cards';
 import { adminApi } from '../services/adminApi';
 import { useFandexStore } from '../store/useFandexStore';
 import type { AdminSection } from '../types/admin';
-import type { DividendSchedule, RankingEntry } from '../types';
+import type { AdminDashboard, DividendSchedule, Market, RankingEntry, ScenarioApplyResult, Stock } from '../types';
 import { compact, currency, dateTime } from '../utils/format';
 
 interface AdminNavItem {
@@ -104,30 +104,72 @@ const adminLogs = [
 ];
 
 export function AdminPage() {
-  const { markets, stocks, rankings, scenarios, transactions, season, dividendSchedule, updateDividendSchedule, notify } = useFandexStore();
+  const { markets, stocks, rankings, scenarios, transactions, season, dividendSchedule, updateDividendSchedule, notify, load } = useFandexStore();
   const [activeSection, setActiveSection] = useState<AdminSection>('overview');
   const [actionRequest, setActionRequest] = useState<AdminActionRequest | null>(null);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
-  const totalCap = markets.reduce((sum, market) => sum + market.marketCap, 0);
-  const totalVolume = markets.reduce((sum, market) => sum + market.volume, 0);
+  const [adminDashboard, setAdminDashboard] = useState<AdminDashboard>();
+  const [adminMarkets, setAdminMarkets] = useState<Market[]>([]);
+  const [adminStocks, setAdminStocks] = useState<Stock[]>([]);
+  const [scenarioApplyResult, setScenarioApplyResult] = useState<ScenarioApplyResult | null>(null);
+  const [isAdminDataLoading, setIsAdminDataLoading] = useState(false);
+  const adminMarketsForView = adminMarkets.length ? adminMarkets : markets;
+  const adminStocksForView = adminStocks.length ? adminStocks : stocks;
+  const totalCap = adminDashboard?.totalMarketCap ?? adminMarketsForView.reduce((sum, market) => sum + market.marketCap, 0);
+  const totalVolume = adminDashboard?.dailyTradeVolume ?? adminMarketsForView.reduce((sum, market) => sum + market.volume, 0);
   const users = rankings.filter((entry) => entry.role !== 'ai');
   const aiAccounts = rankings.filter((entry) => entry.role === 'ai');
-  const activeDividendStocks = stocks.filter((stock) => stock.dividendEnabled);
+  const activeDividendStocks = adminStocksForView.filter((stock) => stock.dividendEnabled);
+
+  const refreshAdminData = useCallback(async (silent = false) => {
+    setIsAdminDataLoading(true);
+    try {
+      const [dashboard, marketsData, stocksData, settingsData] = await Promise.all([
+        adminApi.getDashboard(),
+        adminApi.getMarkets({ includeInactive: true }),
+        adminApi.getStocks({ includeUnlisted: true }),
+        adminApi.getDividendSettings(),
+      ]);
+      setAdminDashboard(dashboard);
+      setAdminMarkets(marketsData);
+      setAdminStocks(stocksData);
+      updateDividendSchedule(settingsData);
+      if (!silent) notify('관리자 데이터가 새로고침되었습니다.');
+    } catch (error) {
+      if (!silent) notify(error instanceof Error ? error.message : '관리자 데이터 새로고침에 실패했습니다.');
+    } finally {
+      setIsAdminDataLoading(false);
+    }
+  }, [notify, updateDividendSchedule]);
+
+  useEffect(() => {
+    void refreshAdminData(true);
+  }, [refreshAdminData]);
 
   const accountTypeData = useMemo(
     () => [
-      { name: '사용자', value: users.length, color: '#38d5ff' },
-      { name: 'AI', value: aiAccounts.length, color: '#7c5cff' },
+      { name: '사용자', value: adminDashboard?.totalUsers ?? users.length, color: '#38d5ff' },
+      { name: 'AI', value: adminDashboard?.aiAccountCount ?? aiAccounts.length, color: '#7c5cff' },
       { name: '관리자', value: rankings.filter((entry) => entry.role === 'admin').length, color: '#42e3a3' },
     ],
-    [aiAccounts.length, rankings, users.length],
+    [adminDashboard, aiAccounts.length, rankings, users.length],
   );
 
-  const marketCapData = markets.map((market) => ({
-    name: market.name.replace('장', ''),
-    marketCap: market.marketCap,
-    volume: market.volume,
-  }));
+  const marketCapData = adminDashboard?.marketVolumeSeries.length
+    ? adminDashboard.marketVolumeSeries.map((market) => ({
+      name: market.marketName.replace('장', ''),
+      marketCap: adminStocksForView
+        .filter((stock) => stock.marketId === market.marketId)
+        .reduce((sum, stock) => sum + stock.marketCap, 0),
+      volume: market.tradeVolume,
+      tradeCount: market.tradeCount,
+    }))
+    : adminMarketsForView.map((market) => ({
+      name: market.name.replace('장', ''),
+      marketCap: market.marketCap,
+      volume: market.volume,
+      tradeCount: 0,
+    }));
   const openActionRequest = (action: string) => setActionRequest(createAdminActionRequest(activeSection, action));
   const submitActionRequest = async (values: Record<string, string | boolean>) => {
     if (!actionRequest) return;
@@ -145,8 +187,14 @@ export function AdminPage() {
           updateDividendSchedule(schedulePatch);
         }
       }
+      if (actionRequest.section === 'scenarios' && hasScenarioApplyResult(result.data)) {
+        setScenarioApplyResult(result.data);
+      }
       notify(`${actionRequest.action} 요청이 접수되었습니다. (${result.requestId})`);
+      await Promise.all([load(), refreshAdminData(true)]);
       setActionRequest(null);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '관리자 요청 처리에 실패했습니다.');
     } finally {
       setIsSubmittingAction(false);
     }
@@ -188,8 +236,12 @@ export function AdminPage() {
             <h1>{adminNavItems.find((item) => item.id === activeSection)?.label}</h1>
           </div>
           <div className="admin-header-actions">
-            <button className="secondary-button" onClick={() => notify('관리자 데이터가 새로고침되었습니다.')}>
-              <RefreshCw size={17} /> 새로고침
+            <button
+              className="secondary-button"
+              onClick={() => void refreshAdminData()}
+              disabled={isAdminDataLoading}
+            >
+              <RefreshCw size={17} /> {isAdminDataLoading ? '동기화 중' : '새로고침'}
             </button>
             <button className="primary-button" onClick={() => notify('운영 변경 사항이 저장되었습니다.')}>
               <ShieldCheck size={17} /> 변경 저장
@@ -201,12 +253,14 @@ export function AdminPage() {
           <OverviewSection
             totalCap={totalCap}
             totalVolume={totalVolume}
-            userCount={users.length}
-            aiCount={aiAccounts.length}
-            stockCount={stocks.length}
-            activeMarketCount={markets.filter((market) => market.active).length}
+            userCount={adminDashboard?.totalUsers ?? users.length}
+            activeUsers={adminDashboard?.activeUsers ?? users.length}
+            aiCount={adminDashboard?.aiAccountCount ?? aiAccounts.length}
+            stockCount={adminDashboard?.stockCount ?? adminStocksForView.length}
+            activeMarketCount={adminDashboard?.marketCount ?? adminMarketsForView.filter((market) => market.active).length}
             accountTypeData={accountTypeData}
             marketCapData={marketCapData}
+            userGrowthData={buildAdminUserGrowth(adminDashboard)}
           />
         )}
         {activeSection === 'season' && (
@@ -218,23 +272,27 @@ export function AdminPage() {
         )}
         {activeSection === 'markets' && (
           <MarketsSection
-            rows={markets.map((market) => [
+            rows={adminMarketsForView.map((market) => [
+              market.id,
               market.name,
               `${market.stockCount}개`,
               currency(market.marketCap),
               compact(market.volume),
-              <Change key={market.id} value={market.changeRate} />,
+              market.active ? '활성' : '비활성',
             ])}
             onAction={openActionRequest}
           />
         )}
         {activeSection === 'stocks' && (
           <StocksSection
-            rows={stocks.map((stock) => [
+            rows={adminStocksForView.map((stock) => [
+              stock.id,
               stock.name,
               stock.symbol,
               currency(stock.price),
-              <Change key={stock.id} value={stock.changeRate} />,
+              compact(stock.volume),
+              currency(stock.tradeValue),
+              formatStockStatus(stock.status),
               stock.dividendEnabled ? '배당 가능' : '미지원',
             ])}
             onAction={openActionRequest}
@@ -265,6 +323,25 @@ export function AdminPage() {
             dividendStockCount={activeDividendStocks.length}
             dividendTotal={transactions.filter((tx) => tx.type === 'dividend').reduce((sum, tx) => sum + tx.total, 0)}
             onAction={openActionRequest}
+            onRunNow={async () => {
+              try {
+                await adminApi.runDividendSettings();
+                notify('배당 즉시 실행 요청이 완료되었습니다.');
+                await Promise.all([load(), refreshAdminData(true)]);
+              } catch (error) {
+                notify(error instanceof Error ? error.message : '배당 즉시 실행에 실패했습니다.');
+              }
+            }}
+            onToggleAuto={async (enabled) => {
+              try {
+                const updated = await adminApi.updateDividendSettings({ isEnabled: enabled });
+                updateDividendSchedule(updated);
+                notify(enabled ? '자동 배당 지급을 활성화했습니다.' : '자동 배당 지급을 일시정지했습니다.');
+                await refreshAdminData(true);
+              } catch (error) {
+                notify(error instanceof Error ? error.message : '자동 배당 설정 변경에 실패했습니다.');
+              }
+            }}
           />
         )}
         {activeSection === 'users' && (
@@ -288,6 +365,9 @@ export function AdminPage() {
           onSubmit={submitActionRequest}
         />
       )}
+      {scenarioApplyResult && (
+        <ScenarioApplyResultModal result={scenarioApplyResult} onClose={() => setScenarioApplyResult(null)} />
+      )}
     </div>
   );
 }
@@ -296,25 +376,30 @@ function OverviewSection({
   totalCap,
   totalVolume,
   userCount,
+  activeUsers,
   aiCount,
   stockCount,
   activeMarketCount,
   accountTypeData,
   marketCapData,
+  userGrowthData,
 }: {
   totalCap: number;
   totalVolume: number;
   userCount: number;
+  activeUsers: number;
   aiCount: number;
   stockCount: number;
   activeMarketCount: number;
   accountTypeData: Array<{ name: string; value: number; color: string }>;
-  marketCapData: Array<{ name: string; marketCap: number; volume: number }>;
+  marketCapData: Array<{ name: string; marketCap: number; volume: number; tradeCount?: number }>;
+  userGrowthData: Array<{ day: string; users: number; active: number }>;
 }) {
   return (
     <>
       <section className="admin-kpi-grid">
         <StatCard label="전체 유저" value={`${userCount}명`} hint={`AI ${aiCount}개 별도 운영`} />
+        <StatCard label="활성 유저" value={`${activeUsers}명`} hint="관리자 대시보드 기준" />
         <StatCard label="상장 종목" value={`${stockCount}개`} hint={`${activeMarketCount}개 장 활성`} />
         <StatCard label="서비스 시가총액" value={currency(totalCap)} />
         <StatCard label="오늘 거래량" value={compact(totalVolume)} />
@@ -368,9 +453,10 @@ function OverviewSection({
               <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
               <XAxis dataKey="name" tickLine={false} axisLine={false} />
               <YAxis hide />
-              <Tooltip formatter={(value, name) => [name === 'marketCap' ? currency(Number(value)) : compact(Number(value)), name === 'marketCap' ? '시가총액' : '거래량']} contentStyle={tooltipStyle} cursor={false} />
+              <Tooltip formatter={(value, name) => [name === 'marketCap' ? currency(Number(value)) : compact(Number(value)), name === 'marketCap' ? '시가총액' : name === 'tradeCount' ? '거래 건수' : '거래량']} contentStyle={tooltipStyle} cursor={false} />
               <Bar dataKey="marketCap" fill="#7c5cff" radius={[8, 8, 0, 0]} activeBar={{ className: 'active-chart-bar purple' }} />
               <Bar dataKey="volume" fill="#38d5ff" radius={[8, 8, 0, 0]} activeBar={{ className: 'active-chart-bar cyan' }} />
+              <Bar dataKey="tradeCount" fill="#42e3a3" radius={[8, 8, 0, 0]} activeBar={{ className: 'active-chart-bar cyan' }} />
             </BarChart>
           </ResponsiveContainer>
         </article>
@@ -408,7 +494,7 @@ function MarketsSection({ rows, onAction }: { rows: Array<Array<ReactNode>>; onA
       onAction={onAction}
       formTitle="장 추가 / 수정"
       fields={['장 이름', '장 설명', '아이콘', '정렬 순서']}
-      table={{ columns: ['장 이름', '종목 수', '시가총액', '거래량', '오늘'], rows }}
+      table={{ columns: ['ID', '장 이름', '종목 수', '시가총액', '거래량', '상태'], rows }}
     />
   );
 }
@@ -418,14 +504,14 @@ function StocksSection({ rows, onAction }: { rows: Array<Array<ReactNode>>; onAc
     <AdminWorkArea
       summary={[
         ['상장 종목', `${rows.length}개`],
-        ['배당 종목', `${rows.filter((row) => row[4] === '배당 가능').length}개`],
-        ['검토 대기', '2건'],
+        ['배당 종목', `${rows.filter((row) => row[7] === '배당 가능').length}개`],
+        ['관리 범위', '비상장 포함'],
       ]}
       actions={['새 종목 상장', '종목 수정', '종목 비활성화', '종목 상장폐지']}
       onAction={onAction}
       formTitle="종목 상장 폼"
       fields={['종목명', '소속 장', '초기 가격', '초기 발행량', '설명', '이미지 URL', '태그', '기본 배당률', '변동성 등급']}
-      table={{ columns: ['종목', '심볼', '현재가', '등락률', '배당'], rows }}
+      table={{ columns: ['ID', '종목', '심볼', '현재가', '거래량', '거래대금', '상태', '배당'], rows }}
     />
   );
 }
@@ -455,7 +541,7 @@ function ScenarioSection({ scenarioCount, rows, onAction }: { scenarioCount: num
         ['BIG 영향도', '82'],
         ['자동 적용', '활성'],
       ]}
-      actions={['메인 시나리오 생성 요청', 'BIG 시나리오 생성 요청', '소규모 시나리오 생성 요청', '시나리오 적용 내역 확인']}
+      actions={['메인 시나리오 생성 요청', 'BIG 시나리오 생성 요청', '소규모 시나리오 생성 요청', '시나리오 적용', '시나리오 적용 내역 확인']}
       onAction={onAction}
       formTitle="시나리오 생성 조건"
       fields={['시나리오 유형', '영향 장', '영향 종목', '변동 방향', '변동 강도']}
@@ -469,12 +555,18 @@ function DividendSection({
   dividendStockCount,
   dividendTotal,
   onAction,
+  onRunNow,
+  onToggleAuto,
 }: {
   schedule?: DividendSchedule;
   dividendStockCount: number;
   dividendTotal: number;
   onAction: (message: string) => void;
+  onRunNow: () => void | Promise<void>;
+  onToggleAuto: (enabled: boolean) => void | Promise<void>;
 }) {
+  const enabled = schedule?.enabled ?? false;
+  const nextRunAt = schedule?.nextRunAt ?? schedule?.nextPayoutAt;
   return (
     <>
       <section className="admin-dashboard-grid">
@@ -493,10 +585,19 @@ function DividendSection({
         <article className="panel admin-action-panel">
           <div className="admin-summary-list">
             <SummaryItem label="배당 가능 종목" value={`${dividendStockCount}개`} />
-            <SummaryItem label="다음 지급 시각" value={schedule ? dateTime(schedule.nextPayoutAt) : '-'} />
+            <SummaryItem label="다음 자동 지급" value={nextRunAt ? dateTime(nextRunAt) : '-'} />
+            <SummaryItem label="최근 자동 지급" value={schedule?.lastRunAt ? dateTime(schedule.lastRunAt) : '-'} />
             <SummaryItem label="지급 주기" value={formatDividendFrequency(schedule?.frequency)} />
             <SummaryItem label="스케줄 상태" value={schedule?.status === 'active' ? '활성' : '일시정지'} />
-            <SummaryItem label="최근 자동 지급" value={currency(dividendTotal)} />
+            <SummaryItem label="누적 수령 기록" value={currency(dividendTotal)} />
+          </div>
+          <div className="admin-dividend-controls">
+            <button className={enabled ? 'secondary-button' : 'primary-button'} type="button" onClick={() => void onToggleAuto(!enabled)}>
+              {enabled ? '자동 지급 OFF' : '자동 지급 ON'}
+            </button>
+            <button className="primary-button" type="button" onClick={() => void onRunNow()}>
+              <RefreshCw size={17} /> 배당 즉시 실행
+            </button>
           </div>
           <ActionGrid actions={['배당금 정책 설정', '배당 지급 스케줄 설정', '다음 지급 시각 변경', '지급 스케줄 일시정지', '수령 횟수 보정', '회복 계수 초기화']} onAction={onAction} />
         </article>
@@ -581,20 +682,44 @@ function formatDividendFrequency(frequency?: DividendSchedule['frequency']) {
   return '-';
 }
 
+function formatStockStatus(status?: string) {
+  if (status === 'SUSPENDED') return '거래정지';
+  if (status === 'UNLISTED') return '상장폐지';
+  return '상장';
+}
+
+function buildAdminUserGrowth(dashboard?: AdminDashboard) {
+  if (!dashboard?.userGrowthSeries.length) return userGrowthData;
+  const maxUsers = Math.max(...dashboard.userGrowthSeries.map((point) => point.count), 1);
+  return dashboard.userGrowthSeries.map((point) => {
+    const activeRatio = dashboard.totalUsers > 0 ? dashboard.activeUsers / dashboard.totalUsers : 1;
+    return {
+      day: point.date.slice(5) || point.date,
+      users: point.count,
+      active: Math.round(Math.min(point.count, maxUsers * activeRatio)),
+    };
+  });
+}
+
+function hasScenarioApplyResult(value: unknown): value is ScenarioApplyResult {
+  return Boolean(value && typeof value === 'object' && 'affectedStocks' in value);
+}
+
 function buildDividendSchedulePatch(action: string, values: Record<string, string | boolean>): Partial<DividendSchedule> {
   if (action === '배당 지급 스케줄 설정') {
     const enabled = values.enabled === true;
     const payoutTime = String(values.payoutTime || '12:00');
     const timezone = String(values.timezone || 'UTC');
-    return {
-      enabled,
-      status: enabled ? 'active' : 'paused',
-      frequency: parseDividendFrequency(String(values.frequency || '매일')),
-      payoutTime,
-      timezone,
-      eligiblePolicy: String(values.eligiblePolicy || '보유자 전체'),
-      nextPayoutAt: buildPayoutDateTime('', payoutTime, timezone),
-    };
+      return {
+        enabled,
+        status: enabled ? 'active' : 'paused',
+        frequency: parseDividendFrequency(String(values.frequency || '매일')),
+        payoutTime,
+        timezone,
+        eligiblePolicy: String(values.eligiblePolicy || '보유자 전체'),
+        nextPayoutAt: String(values.nextRunAt || buildPayoutDateTime('', payoutTime, timezone)),
+        nextRunAt: String(values.nextRunAt || buildPayoutDateTime('', payoutTime, timezone)),
+      };
   }
 
   if (action === '다음 지급 시각 변경') {
@@ -603,7 +728,8 @@ function buildDividendSchedulePatch(action: string, values: Record<string, strin
     return {
       payoutTime,
       timezone,
-      nextPayoutAt: buildPayoutDateTime(String(values.nextPayoutDate || ''), payoutTime, timezone),
+      nextPayoutAt: String(values.nextRunAt || buildPayoutDateTime(String(values.nextPayoutDate || ''), payoutTime, timezone)),
+      nextRunAt: String(values.nextRunAt || buildPayoutDateTime(String(values.nextPayoutDate || ''), payoutTime, timezone)),
     };
   }
 
@@ -664,6 +790,66 @@ function OperationLog() {
         </div>
       ))}
     </article>
+  );
+}
+
+function ScenarioApplyResultModal({ result, onClose }: { result: ScenarioApplyResult; onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scenario-apply-result-title">
+      <section className="modal scenario-result-modal">
+        <div className="admin-request-head">
+          <div>
+            <span className="eyebrow">Scenario Applied</span>
+            <h3 id="scenario-apply-result-title">{result.title}</h3>
+            <p>가격 변동, 조건 주문 처리, AI 자동 거래 결과입니다.</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="결과 닫기">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="scenario-result-grid">
+          <article className="scenario-result-section">
+            <h4>변동된 종목</h4>
+            {result.affectedStocks.length ? result.affectedStocks.map((stock) => (
+              <div className="scenario-result-row" key={stock.stockId}>
+                <strong>{stock.stockName}</strong>
+                <span>{currency(stock.beforePrice)} → {currency(stock.afterPrice)}</span>
+                <span className={stock.appliedRate >= 0 ? 'positive' : 'negative'}>{stock.appliedRate.toFixed(2)}%</span>
+                {stock.impactReason && <small>{stock.impactReason}</small>}
+              </div>
+            )) : <p className="panel-copy">가격 변동 종목이 없습니다.</p>}
+          </article>
+
+          <article className="scenario-result-section">
+            <h4>조건 주문 결과</h4>
+            {result.conditionalOrderResults.length ? result.conditionalOrderResults.map((order, index) => (
+              <div className="scenario-result-row" key={order.orderId ?? `${order.stockId}-${index}`}>
+                <strong>{order.type ?? '조건 주문'} · {order.status ?? '-'}</strong>
+                <span>{order.stockId ?? '-'}</span>
+                <small>{order.reason ?? `${order.quantity ?? 0}주 처리`}</small>
+              </div>
+            )) : <p className="panel-copy">체결 또는 실패한 조건 주문이 없습니다.</p>}
+          </article>
+
+          <article className="scenario-result-section wide">
+            <h4>AI 자동 거래</h4>
+            {result.aiTradeSummary && <p className="panel-copy">{result.aiTradeSummary}</p>}
+            {result.aiTradeResults.length ? result.aiTradeResults.map((trade, index) => (
+              <div className="scenario-result-row" key={trade.tradeId ?? `${trade.aiAccountId}-${index}`}>
+                <strong>{trade.action}</strong>
+                <span>{trade.stockId ?? '-'} · {(trade.quantity ?? 0).toLocaleString('ko-KR')}주</span>
+                <small>{trade.reason ?? '자동 거래 결과'}</small>
+              </div>
+            )) : <p className="panel-copy">AI 자동 거래 결과가 없습니다.</p>}
+          </article>
+        </div>
+
+        <div className="modal-actions">
+          <button className="primary-button" type="button" onClick={onClose}>확인</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -904,6 +1090,7 @@ function getActionDescription(section: AdminSection, action: string) {
     '메인 시나리오 생성 요청': '시장 흐름에 영향을 주는 메인 시나리오 생성을 요청합니다.',
     'BIG 시나리오 생성 요청': '강한 가격 충격을 주는 BIG 시나리오를 생성하고 즉시 적용 여부를 정합니다.',
     '소규모 시나리오 생성 요청': '개별 종목 중심의 짧은 시나리오를 생성합니다.',
+    '시나리오 적용': '생성된 시나리오를 가격에 반영하고 조건 주문과 AI 자동 거래 결과를 확인합니다.',
     '시나리오 적용 내역 확인': '기간과 장 기준으로 적용된 시나리오 로그를 조회합니다.',
     '배당금 정책 설정': '배당률 상승 단계와 지급 대상 정책을 변경합니다.',
     '배당 지급 스케줄 설정': '사용자가 버튼을 누르지 않아도 지정된 시각에 배당금이 자동 지급되도록 설정합니다.',
@@ -935,6 +1122,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
   if (section === 'season') {
     if (action === '시즌 초기화') {
       return withBase([
+        { name: 'seasonId', label: '시즌 ID', placeholder: '초기화할 시즌 ID' },
         { name: 'newSeasonName', label: '새 시즌명', placeholder: '시즌 4: 신규 랠리' },
         { name: 'resetScope', label: '초기화 범위', type: 'select', options: ['랭킹+포트폴리오+주문', '랭킹만', '포트폴리오만'] },
         { name: 'initialCash', label: '초기 현금', type: 'number', placeholder: '10000000' },
@@ -979,6 +1167,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
     }
     if (action === '장/시장 수정') {
       return withBase([
+        { name: 'marketId', label: '장 ID', placeholder: '수정할 장 ID' },
         { name: 'targetMarket', label: '수정할 장', type: 'select', options: marketOptions },
         { name: 'marketName', label: '변경 이름', placeholder: '변경하지 않으면 비워두기' },
         { name: 'marketDescription', label: '변경 설명', type: 'textarea', placeholder: '변경할 설명을 입력하세요.' },
@@ -988,6 +1177,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
     }
     if (action === '장/시장 비활성화') {
       return withBase([
+        { name: 'marketId', label: '장 ID', placeholder: '비활성화할 장 ID' },
         { name: 'targetMarket', label: '비활성화할 장', type: 'select', options: marketOptions },
         { name: 'haltMode', label: '거래 제한 방식', type: 'select', options: ['신규 주문 차단', '매수만 차단', '전체 거래 정지'] },
         { name: 'cancelOpenOrders', label: '미체결 주문 취소', type: 'checkbox', defaultValue: 'true' },
@@ -995,6 +1185,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
       ]);
     }
     return withBase([
+      { name: 'marketId', label: '장 ID', placeholder: '삭제할 장 ID' },
       { name: 'targetMarket', label: '삭제할 장', type: 'select', options: marketOptions },
       { name: 'migrationMarket', label: '종목 이관 장', type: 'select', options: ['아카이브만 수행', ...marketOptions] },
       { name: 'archiveSnapshot', label: '삭제 전 스냅샷 저장', type: 'checkbox', defaultValue: 'true' },
@@ -1006,9 +1197,11 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
     if (action === '새 종목 상장') {
       return withBase([
         { name: 'stockName', label: '종목명', placeholder: '예: 신규 종목' },
+        { name: 'marketId', label: '소속 장 ID', placeholder: '상장할 장 ID' },
         { name: 'market', label: '소속 장', type: 'select', options: marketOptions },
         { name: 'initialPrice', label: '초기 가격', type: 'number', placeholder: '10000' },
-        { name: 'initialSupply', label: '초기 발행량', type: 'number', placeholder: '1000000' },
+        { name: 'totalSupply', label: '초기 발행량', type: 'number', placeholder: '1000000' },
+        { name: 'circulatingSupply', label: '초기 유통량', type: 'number', placeholder: '1000000' },
         { name: 'volatility', label: '변동성 등급', type: 'select', options: ['S', 'A', 'B', 'C'] },
         { name: 'imageUrl', label: '이미지 URL', placeholder: 'https://...' },
         { name: 'dividendEnabled', label: '배당 가능 종목', type: 'checkbox' },
@@ -1016,6 +1209,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
     }
     if (action === '종목 수정') {
       return withBase([
+        { name: 'stockId', label: '종목 ID', placeholder: '수정할 종목 ID' },
         { name: 'targetStock', label: '수정할 종목', type: 'select', options: stockOptions },
         { name: 'manualPrice', label: '수동 기준가', type: 'number', placeholder: '비워두면 유지' },
         { name: 'volatility', label: '변동성 등급', type: 'select', options: ['변경 없음', 'S', 'A', 'B', 'C'] },
@@ -1025,6 +1219,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
     }
     if (action === '종목 비활성화') {
       return withBase([
+        { name: 'stockId', label: '종목 ID', placeholder: '비활성화할 종목 ID' },
         { name: 'targetStock', label: '비활성화할 종목', type: 'select', options: stockOptions },
         { name: 'haltMode', label: '제한 방식', type: 'select', options: ['매수만 차단', '매도만 차단', '전체 거래 정지'] },
         { name: 'cancelOpenOrders', label: '미체결 주문 취소', type: 'checkbox', defaultValue: 'true' },
@@ -1032,6 +1227,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
       ]);
     }
     return withBase([
+      { name: 'stockId', label: '종목 ID', placeholder: '상장폐지할 종목 ID' },
       { name: 'targetStock', label: '상장폐지할 종목', type: 'select', options: stockOptions },
       { name: 'settlementMethod', label: '정산 방식', type: 'select', options: ['현재가 현금 정산', '평균가 현금 정산', '보상 없이 아카이브'] },
       { name: 'finalPrice', label: '최종 정산가', type: 'number', placeholder: '비워두면 현재가' },
@@ -1052,6 +1248,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
     }
     if (action === 'AI 계정 수정') {
       return withBase([
+        { name: 'aiAccountId', label: 'AI 계정 ID', placeholder: '수정할 AI 계정 ID' },
         { name: 'targetAi', label: '수정할 AI', type: 'select', options: aiOptions },
         { name: 'profile', label: '투자 성향', type: 'select', options: ['공격형', '안정형', '랜덤형', '특정 장 집중형', '변경 없음'] },
         { name: 'favoriteMarket', label: '선호 장', type: 'select', options: ['변경 없음', ...marketOptions] },
@@ -1061,6 +1258,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
     }
     if (action === 'AI 계정 삭제') {
       return withBase([
+        { name: 'aiAccountId', label: 'AI 계정 ID', placeholder: '삭제할 AI 계정 ID' },
         { name: 'targetAi', label: '삭제할 AI', type: 'select', options: aiOptions.filter((option) => option !== '전체 AI 계정') },
         { name: 'settlementMethod', label: '포트폴리오 처리', type: 'select', options: ['전량 매도 후 삭제', '기록만 아카이브', '보유 종목 유지 후 비활성'] },
         { name: 'archiveHistory', label: '거래 기록 보존', type: 'checkbox', defaultValue: 'true' },
@@ -1068,6 +1266,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
       ]);
     }
     return withBase([
+      { name: 'aiAccountId', label: 'AI 계정 ID', placeholder: '거래를 실행할 AI 계정 ID' },
       { name: 'targetAi', label: '리밸런싱 대상', type: 'select', options: aiOptions },
       { name: 'rebalanceMode', label: '리밸런싱 방식', type: 'select', options: ['시장 비중 재조정', '손실 종목 축소', '수익 종목 추세 추종', '랜덤 재분배'] },
       { name: 'riskLimit', label: '위험 한도', type: 'number', placeholder: '30' },
@@ -1104,7 +1303,13 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
         { name: 'promptHint', label: '생성 힌트', type: 'textarea', placeholder: '작은 이슈나 커뮤니티 반응을 입력하세요.' },
       ]);
     }
+    if (action === '시나리오 적용') {
+      return withBase([
+        { name: 'scenarioId', label: '시나리오 ID', placeholder: '적용할 시나리오 ID' },
+      ]);
+    }
     return withBase([
+      { name: 'scenarioId', label: '시나리오 ID', placeholder: '적용할 시나리오 ID. 비우면 상태 조회' },
       { name: 'fromDate', label: '조회 시작일', type: 'date' },
       { name: 'toDate', label: '조회 종료일', type: 'date' },
       { name: 'targetMarket', label: '조회 장', type: 'select', options: ['전체', ...marketOptions] },
@@ -1116,9 +1321,11 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
   if (section === 'dividends') {
     if (action === '배당금 정책 설정') {
       return withBase([
-        { name: 'baseRate', label: '기본 배당률', type: 'number', placeholder: '1.2' },
-        { name: 'growthStep', label: '수령 횟수별 증가율', type: 'number', placeholder: '0.15' },
-        { name: 'maxRate', label: '최대 배당률', type: 'number', placeholder: '3.0' },
+        { name: 'baseDividendRate', label: '기본 배당률', type: 'number', placeholder: '0.01' },
+        { name: 'claimCountMultiplier', label: '수령 횟수별 증가율', type: 'number', placeholder: '0.1' },
+        { name: 'claimCooldownMinutes', label: '수령 쿨타임(분)', type: 'number', placeholder: '1440' },
+        { name: 'seasonalClaimLimit', label: '시즌 수령 제한', type: 'number', placeholder: '30' },
+        { name: 'isEnabled', label: '자동 지급 활성화', type: 'checkbox', defaultValue: 'true' },
         { name: 'eligiblePolicy', label: '수령 대상', type: 'select', options: ['보유자 전체', '손실 보유자 우선', '배당 가능 종목 보유자'] },
       ]);
     }
@@ -1126,6 +1333,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
       return withBase([
         { name: 'frequency', label: '지급 주기', type: 'select', options: ['매일', '매주', '매월'] },
         { name: 'payoutTime', label: '지급 시각', placeholder: '12:00' },
+        { name: 'nextRunAt', label: '다음 자동 지급 ISO 시각', placeholder: '2026-07-09T03:00:00.000Z' },
         { name: 'timezone', label: '기준 시간대', type: 'select', options: ['UTC', 'Asia/Seoul'] },
         { name: 'eligiblePolicy', label: '지급 대상', type: 'select', options: ['보유자 전체', '손실 보유자 우선', '배당 가능 종목 보유자'] },
         { name: 'enabled', label: '스케줄 즉시 활성화', type: 'checkbox', defaultValue: 'true' },
@@ -1135,6 +1343,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
       return withBase([
         { name: 'nextPayoutDate', label: '다음 지급일', type: 'date' },
         { name: 'payoutTime', label: '다음 지급 시각', placeholder: '12:00' },
+        { name: 'nextRunAt', label: '다음 자동 지급 ISO 시각', placeholder: '2026-07-09T03:00:00.000Z' },
         { name: 'timezone', label: '기준 시간대', type: 'select', options: ['UTC', 'Asia/Seoul'] },
         { name: 'keepRecurringSchedule', label: '반복 스케줄은 유지', type: 'checkbox', defaultValue: 'true' },
       ]);
@@ -1164,6 +1373,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
   if (section === 'users') {
     if (action === '유저 권한 변경') {
       return withBase([
+        { name: 'userId', label: '유저 ID', placeholder: '권한을 변경할 유저 ID' },
         { name: 'targetUser', label: '대상 유저', type: 'select', options: userOptions.filter((option) => option !== '전체 사용자') },
         { name: 'role', label: '변경 권한', type: 'select', options: ['일반 사용자', '관리자', '거래 제한 계정'] },
         { name: 'expireAt', label: '권한 만료일', type: 'date' },
@@ -1172,6 +1382,7 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
     }
     if (action === '유저 거래 제한') {
       return withBase([
+        { name: 'userId', label: '유저 ID', placeholder: '거래 제한할 유저 ID' },
         { name: 'targetUser', label: '대상 유저', type: 'select', options: userOptions.filter((option) => option !== '전체 사용자') },
         { name: 'restriction', label: '제한 범위', type: 'select', options: ['매수 제한', '매도 제한', '전체 거래 제한', '조건 주문 제한'] },
         { name: 'durationHours', label: '제한 시간', type: 'number', placeholder: '24' },

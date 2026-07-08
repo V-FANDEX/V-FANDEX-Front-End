@@ -1,4 +1,4 @@
-import { Lock, LogIn, LogOut, Mail, ShieldCheck, UserPlus, UserRound, X } from 'lucide-react';
+import { Lock, LogIn, LogOut, Mail, UserPlus, UserRound, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { useFandexStore } from '../store/useFandexStore';
 
@@ -12,11 +12,10 @@ interface AuthModalProps {
 export function AuthModal({ initialMode, onClose }: AuthModalProps) {
   const { login, logout, signup, user } = useFandexStore();
   const [mode, setMode] = useState<AuthMode>(initialMode);
-  const [email, setEmail] = useState('player@vfandex.dev');
-  const [password, setPassword] = useState('vfandex2026');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [name, setName] = useState('');
-  const [role, setRole] = useState<'user' | 'admin'>('user');
+  const [nickname, setNickname] = useState('');
   const [remember, setRemember] = useState(true);
   const [accepted, setAccepted] = useState(false);
   const [error, setError] = useState('');
@@ -36,15 +35,25 @@ export function AuthModal({ initialMode, onClose }: AuthModalProps) {
 
     setSubmitting(true);
     setError('');
-    await login({ email, password, role, remember });
-    setSubmitting(false);
-    onClose();
+    try {
+      await login({ email, password, remember });
+      onClose();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '로그인에 실패했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleSignup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!name.trim() || !email.trim() || !password.trim()) {
-      setError('이름, 이메일, 비밀번호를 모두 입력해주세요.');
+    if (!nickname.trim() || !email.trim() || !password.trim()) {
+      setError('닉네임, 이메일, 비밀번호를 모두 입력해주세요.');
+      return;
+    }
+
+    if (nickname.trim().length < 2 || nickname.trim().length > 32) {
+      setError('닉네임은 2자 이상 32자 이하로 입력해주세요.');
       return;
     }
 
@@ -65,16 +74,24 @@ export function AuthModal({ initialMode, onClose }: AuthModalProps) {
 
     setSubmitting(true);
     setError('');
-    await signup({ name, email, password });
-    setSubmitting(false);
-    onClose();
+    try {
+      await signup({ nickname, email, password });
+      onClose();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '회원가입에 실패했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleLogout = async () => {
     setSubmitting(true);
-    await logout();
-    setSubmitting(false);
-    onClose();
+    try {
+      await logout();
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -138,17 +155,6 @@ export function AuthModal({ initialMode, onClose }: AuthModalProps) {
                   </div>
                 </label>
 
-                <div className="auth-role-grid" aria-label="로그인 권한">
-                  <button type="button" className={role === 'user' ? 'active' : ''} onClick={() => setRole('user')}>
-                    <UserRound size={18} />
-                    <span>일반 사용자</span>
-                  </button>
-                  <button type="button" className={role === 'admin' ? 'active' : ''} onClick={() => setRole('admin')}>
-                    <ShieldCheck size={18} />
-                    <span>관리자 데모</span>
-                  </button>
-                </div>
-
                 <label className="auth-inline">
                   <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
                   <span>이 브라우저에서 세션 유지</span>
@@ -166,7 +172,7 @@ export function AuthModal({ initialMode, onClose }: AuthModalProps) {
                   <span>닉네임</span>
                   <div className="auth-input">
                     <UserRound size={17} />
-                    <input value={name} onChange={(event) => setName(event.target.value)} autoComplete="nickname" placeholder="예: 루키트레이더" />
+                    <input value={nickname} onChange={(event) => setNickname(event.target.value)} autoComplete="nickname" placeholder="예: 루키트레이더" />
                   </div>
                 </label>
                 <label className="auth-field">

@@ -1,7 +1,8 @@
 import { Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { EmptyState, StockRow } from '../components/Cards';
+import { fandexApi } from '../services/fandexApi';
 import { useFandexStore } from '../store/useFandexStore';
 import type { Stock } from '../types';
 
@@ -14,11 +15,28 @@ export function StockListPage() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortKey>('volume');
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [remoteStocks, setRemoteStocks] = useState<Stock[]>([]);
+  const [loadingStocks, setLoadingStocks] = useState(false);
   const market = markets.find((item) => item.id === marketId);
+  const sourceStocks = remoteStocks.length || loadingStocks
+    ? remoteStocks
+    : stocks.filter((stock) => stock.marketId === marketId);
+
+  useEffect(() => {
+    if (!marketId) return;
+    setLoadingStocks(true);
+    const request = query.trim()
+      ? fandexApi.getStocks({ marketId, search: query.trim() })
+      : fandexApi.getMarketStocks(marketId);
+
+    request
+      .then(setRemoteStocks)
+      .catch(() => setRemoteStocks([]))
+      .finally(() => setLoadingStocks(false));
+  }, [marketId, query]);
 
   const visibleStocks = useMemo(() => {
-    return stocks
-      .filter((stock) => stock.marketId === marketId)
+    return sourceStocks
       .filter((stock) => stock.name.includes(query) || stock.symbol.toLowerCase().includes(query.toLowerCase()))
       .filter((stock) => {
         if (filter === 'up') return stock.changeRate > 0;
@@ -28,7 +46,7 @@ export function StockListPage() {
         return true;
       })
       .sort((a, b) => compareStock(a, b, sort));
-  }, [filter, marketId, query, sort, stocks, user]);
+  }, [filter, query, sort, sourceStocks, user]);
 
   if (!market) return <Navigate to="/markets" replace />;
 
@@ -68,14 +86,14 @@ export function StockListPage() {
         </div>
         <div className="stock-table">
           <div className="stock-row table-head">
-            <span>종목</span><span>현재가</span><span>등락률</span><span>거래량</span><span>시가총액</span><span>배당</span><span />
+            <span>종목</span><span>현재가</span><span>등락률</span><span>거래량</span><span>시가총액</span><span>상태</span><span>배당</span><span />
           </div>
-          {visibleStocks.length ? visibleStocks.map((stock) => (
+          {loadingStocks && !visibleStocks.length ? <EmptyState text="종목을 불러오는 중입니다." /> : visibleStocks.length ? visibleStocks.map((stock) => (
             <StockRow
               key={stock.id}
               stock={stock}
               favorite={Boolean(user?.favoriteStockIds.includes(stock.id))}
-              onFavorite={() => toggleFavorite(stock.id)}
+              onFavorite={() => void toggleFavorite(stock.id)}
             />
           )) : <EmptyState text="조건에 맞는 종목이 없습니다." />}
         </div>

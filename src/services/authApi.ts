@@ -1,44 +1,57 @@
 import type { Role, UserAccount } from '../types';
-import { currentUser } from './mockData';
+import { apiClient, clearAuthToken, jsonBody, setAuthToken } from './apiClient';
+import { mapUser } from './mappers';
 
 export interface LoginPayload {
   email: string;
   password: string;
-  role: Exclude<Role, 'ai'>;
-  remember: boolean;
+  role?: Exclude<Role, 'ai'>;
+  remember?: boolean;
 }
 
 export interface SignupPayload {
-  name: string;
+  nickname?: string;
+  name?: string;
   email: string;
   password: string;
 }
 
-const latency = 220;
-
-const wait = <T,>(data: T): Promise<T> =>
-  new Promise((resolve) => {
-    window.setTimeout(() => resolve(data), latency);
-  });
+interface AuthResponse {
+  accessToken: string;
+  user: unknown;
+}
 
 export const authApi = {
-  login: ({ email, role }: LoginPayload) => {
-    if (role === 'admin') return wait({ ...currentUser, role: 'admin' as const });
-
-    return wait(createUserAccount(email.split('@')[0] || '팬덱스 유저', 'user'));
+  async login({ email, password }: LoginPayload): Promise<UserAccount> {
+    const response = await apiClient<AuthResponse>('/auth/login', {
+      method: 'POST',
+      body: jsonBody({ email, password }),
+    });
+    setAuthToken(response.accessToken);
+    return authApi.me(response.user);
   },
-  signup: ({ name }: SignupPayload) => wait(createUserAccount(name, 'user')),
-  logout: () => wait(true),
-};
 
-function createUserAccount(name: string, role: Exclude<Role, 'ai'>): UserAccount {
-  return {
-    id: `user-${Date.now()}`,
-    name: name.trim() || '팬덱스 유저',
-    role,
-    cash: 10_000_000,
-    totalDividend: 0,
-    favoriteStockIds: [],
-    holdings: [],
-  };
-}
+  async signup({ nickname, name, email, password }: SignupPayload): Promise<UserAccount> {
+    const response = await apiClient<AuthResponse>('/auth/register', {
+      method: 'POST',
+      body: jsonBody({ nickname: nickname ?? name, email, password }),
+    });
+    setAuthToken(response.accessToken);
+    return authApi.me(response.user);
+  },
+
+  async me(fallback?: unknown): Promise<UserAccount> {
+    try {
+      const user = await apiClient<unknown>('/auth/me');
+      return mapUser(user);
+    } catch (error) {
+      if (fallback) return mapUser(fallback);
+      throw error;
+    }
+  },
+
+  async logout() {
+    clearAuthToken();
+    return true;
+  },
+};

@@ -1,22 +1,24 @@
 import { History, PieChart } from 'lucide-react';
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { StatCard } from '../components/Cards';
+import { EmptyState, StatCard } from '../components/Cards';
 import { useFandexStore } from '../store/useFandexStore';
 import { currency, dateTime } from '../utils/format';
 
 export function PortfolioPage() {
   const { user, stocks, transactions } = useFandexStore();
-  const holdingRows = user?.holdings.map((holding) => {
-    const stock = stocks.find((item) => item.id === holding.stockId)!;
+  const holdingRows = user?.holdings.flatMap((holding) => {
+    const stock = holding.stock ?? stocks.find((item) => item.id === holding.stockId);
+    if (!stock) return [];
     const value = stock.price * holding.quantity;
     const pnl = (stock.price - holding.averagePrice) * holding.quantity;
-    const returnRate = ((stock.price - holding.averagePrice) / holding.averagePrice) * 100;
-    return { ...holding, stock, value, pnl, returnRate };
+    const returnRate = holding.averagePrice > 0 ? ((stock.price - holding.averagePrice) / holding.averagePrice) * 100 : 0;
+    return [{ ...holding, stock, value, pnl, returnRate }];
   }) ?? [];
   const stockValue = holdingRows.reduce((sum, item) => sum + item.value, 0);
+  const totalAssetValue = user?.totalAssetValue ?? (user?.cash ?? 0) + stockValue;
   const assetHistory = Array.from({ length: 10 }, (_, index) => ({
     day: `${index + 1}일`,
-    value: Math.round((user?.cash ?? 0) + stockValue * (0.88 + index * 0.018 + Math.sin(index) * 0.02)),
+    value: Math.round(totalAssetValue * (0.92 + index * 0.009 + Math.sin(index) * 0.012)),
   }));
 
   return (
@@ -28,7 +30,7 @@ export function PortfolioPage() {
       </header>
       <section className="stat-grid">
         <StatCard label="가상 현금" value={currency(user?.cash ?? 0)} />
-        <StatCard label="총 평가 자산" value={currency((user?.cash ?? 0) + stockValue)} />
+        <StatCard label="총 평가 자산" value={currency(totalAssetValue)} />
         <StatCard label="총 배당 수령액" value={currency(user?.totalDividend ?? 0)} />
         <StatCard label="보유 종목 수" value={`${holdingRows.length}개`} />
       </section>
@@ -49,10 +51,10 @@ export function PortfolioPage() {
         <article className="panel">
           <div className="panel-title"><History size={20} /><h2>거래 내역</h2></div>
           {transactions.map((tx) => {
-            const stock = stocks.find((item) => item.id === tx.stockId);
+            const stock = tx.stock ?? stocks.find((item) => item.id === tx.stockId);
             return (
               <div className="history-row" key={tx.id}>
-                <span>{stock?.name}</span>
+                <span>{stock?.name ?? '시스템'}</span>
                 <strong>{tx.type === 'buy' ? '매수' : tx.type === 'sell' ? '매도' : '배당'}</strong>
                 <small>{currency(tx.total)} · {dateTime(tx.createdAt)}</small>
               </div>
@@ -65,7 +67,7 @@ export function PortfolioPage() {
           <div className="stock-row table-head">
             <span>종목</span><span>보유 수량</span><span>평균 매수가</span><span>현재가</span><span>평가 손익</span><span>수익률</span>
           </div>
-          {holdingRows.map((row) => (
+          {holdingRows.length ? holdingRows.map((row) => (
             <div className="stock-row" key={row.stockId}>
               <strong className="portfolio-name">{row.stock.name}</strong>
               <span className="portfolio-metric" data-label="보유 수량">{row.quantity.toLocaleString('ko-KR')}주</span>
@@ -74,7 +76,7 @@ export function PortfolioPage() {
               <strong className={`portfolio-metric ${row.pnl >= 0 ? 'positive' : 'negative'}`} data-label="평가 손익">{currency(row.pnl)}</strong>
               <span className={`portfolio-metric ${row.returnRate >= 0 ? 'positive' : 'negative'}`} data-label="수익률">{row.returnRate.toFixed(2)}%</span>
             </div>
-          ))}
+          )) : <EmptyState text="아직 보유 중인 종목이 없습니다." />}
         </div>
       </section>
     </div>

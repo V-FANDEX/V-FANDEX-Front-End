@@ -1,11 +1,12 @@
 import { Activity, CalendarDays, Clock3, Heart, Info, ReceiptText, Timer } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Change, ScenarioCard, StatCard } from '../components/Cards';
 import { TradePanel } from '../components/TradePanel';
+import { fandexApi } from '../services/fandexApi';
 import { useFandexStore } from '../store/useFandexStore';
-import type { Stock } from '../types';
+import type { Stock, StockChartPoint } from '../types';
 import { compact, currency, dateTime } from '../utils/format';
 
 type ChartRange = 'day' | 'hour' | 'minute';
@@ -18,18 +19,73 @@ const chartRanges: Array<{ key: ChartRange; label: string; caption: string; icon
 
 export function StockDetailPage() {
   const { stockId } = useParams();
-  const { stocks, markets, user, scenarios, dividendSchedule, toggleFavorite, placeOrder, notify } = useFandexStore();
+  const {
+    stocks,
+    markets,
+    user,
+    scenarios,
+    dividendSchedule,
+    toggleFavorite,
+    placeOrder,
+    createConditionalOrder,
+    claimDividend,
+    notify,
+  } = useFandexStore();
   const [chartRange, setChartRange] = useState<ChartRange>('day');
-  const stock = stocks.find((item) => item.id === stockId);
-  const chart = useMemo(() => (stock ? createPriceSeries(stock, chartRange) : []), [stock, chartRange]);
+  const [remoteStock, setRemoteStock] = useState<Stock>();
+  const [stockChecked, setStockChecked] = useState(false);
+  const [remoteChart, setRemoteChart] = useState<StockChartPoint[]>([]);
+  const [chartLoading, setChartLoading] = useState(false);
+  const stock = stocks.find((item) => item.id === stockId) ?? remoteStock;
+  const chart = useMemo(
+    () => (stock ? getChartForRange(remoteChart, stock, chartRange) : []),
+    [chartRange, remoteChart, stock],
+  );
+
+  useEffect(() => {
+    if (!stockId) return;
+    setStockChecked(false);
+    const inStore = stocks.find((item) => item.id === stockId);
+    if (inStore) {
+      setRemoteStock(inStore);
+      setStockChecked(true);
+      return;
+    }
+
+    fandexApi
+      .getStock(stockId)
+      .then(setRemoteStock)
+      .catch(() => setRemoteStock(undefined))
+      .finally(() => setStockChecked(true));
+  }, [stockId, stocks]);
+
+  useEffect(() => {
+    if (!stockId) return;
+    setChartLoading(true);
+    fandexApi
+      .getStockChart(stockId, chartRange, chartRange === 'day' ? 30 : chartRange === 'hour' ? 24 : 60)
+      .then(setRemoteChart)
+      .catch(() => setRemoteChart([]))
+      .finally(() => setChartLoading(false));
+  }, [chartRange, stockId]);
+
+  if (!stock && !stockChecked) {
+    return (
+      <div className="boot">
+        <div className="brand-mark">VF</div>
+        <p>종목 상세 데이터를 불러오는 중</p>
+      </div>
+    );
+  }
+
   if (!stock) return <Navigate to="/markets" replace />;
-  const market = markets.find((item) => item.id === stock.marketId);
+  const market = stock.market ?? markets.find((item) => item.id === stock.marketId);
   const holding = user?.holdings.find((item) => item.stockId === stock.id);
   const pnl = holding ? (stock.price - holding.averagePrice) * holding.quantity : 0;
   const chartStart = chart[0]?.price ?? stock.previousClose;
   const chartEnd = chart[chart.length - 1]?.price ?? stock.price;
-  const chartHigh = Math.max(...chart.map((point) => point.price));
-  const chartLow = Math.min(...chart.map((point) => point.price));
+  const chartHigh = chart.length ? Math.max(...chart.map((point) => point.price)) : stock.price;
+  const chartLow = chart.length ? Math.min(...chart.map((point) => point.price)) : stock.price;
   const chartMoveRate = chartStart > 0 ? ((chartEnd - chartStart) / chartStart) * 100 : 0;
   const chartVolume = chart.reduce((sum, point) => sum + point.volume, 0);
   const chartPadding = Math.max(250, stock.price * 0.04);
@@ -54,6 +110,9 @@ export function StockDetailPage() {
         <StatCard label="현재 가격" value={currency(stock.price)} hint={stock.symbol} />
         <StatCard label="전일 대비" value={`${stock.price - stock.previousClose > 0 ? '+' : ''}${currency(stock.price - stock.previousClose)}`} hint={`${stock.changeRate.toFixed(2)}%`} />
         <StatCard label="최근 거래량" value={compact(stock.volume)} />
+        <StatCard label="거래대금" value={currency(stock.tradeValue)} />
+        <StatCard label="시가총액" value={currency(stock.marketCap)} />
+        <StatCard label="상장 상태" value={formatStockStatus(stock.status)} />
         <StatCard label="평가 손익" value={currency(pnl)} hint={holding ? `${holding.quantity}주 보유` : '미보유'} />
       </section>
       <section className="detail-grid">
@@ -61,7 +120,7 @@ export function StockDetailPage() {
           <div className="stock-chart-head">
             <div>
               <div className="panel-title"><ReceiptText size={20} /><h2>가격 차트</h2><Change value={chartMoveRate} /></div>
-              <p className="panel-copy">{stock.symbol} 가격 흐름 · {activeRange.caption} 단위</p>
+              <p className="panel-copy">{stock.symbol} 가격 흐름 · {activeRange.caption} 단위 {chartLoading ? '· 불러오는 중' : ''}</p>
             </div>
             <div className="chart-range-toggle" aria-label="차트 기간 선택">
               {chartRanges.map(({ key, label, icon: Icon }) => (
@@ -109,7 +168,7 @@ export function StockDetailPage() {
                     boxShadow: '0 18px 44px rgba(0, 0, 0, 0.32)',
                   }}
                   labelStyle={{ color: '#98abc5' }}
-                  formatter={(value) => [currency(Number(value)), '가격']}
+                  formatter={(value, name) => [name === 'price' ? currency(Number(value)) : compact(Number(value)), name === 'price' ? '종가' : '집계']}
                 />
                 <Area
                   type="monotone"
@@ -124,7 +183,7 @@ export function StockDetailPage() {
           </div>
           <div className="stock-chart-status">
             <span><Activity size={15} /> {chartMoveRate >= 0 ? '매수세 우위' : '매도세 우위'}</span>
-            <span>{activeRange.caption} 기준</span>
+            <span>{activeRange.caption} 기준 · {remoteChart.length ? '실시간 버킷' : '예상 흐름'}</span>
           </div>
           <div className="metadata">
             <h3>관리자 메타데이터</h3>
@@ -137,12 +196,25 @@ export function StockDetailPage() {
           stock={stock}
           ownedQuantity={holding?.quantity ?? 0}
           cash={user?.cash ?? 0}
-          onOrder={(type, quantity) => {
-            if (quantity === 0) {
-              notify('조건 주문이 등록되었습니다.');
+          onOrder={(order) => {
+            if (order.orderType === 'CONDITION') {
+              if (!order.triggerPrice || order.triggerPrice <= 0) {
+                notify('조건 가격을 입력해주세요.');
+                return;
+              }
+              void createConditionalOrder({
+                stockId: stock.id,
+                type: order.type === 'buy' ? 'BUY' : 'SELL',
+                triggerPrice: order.triggerPrice,
+                conditionType:
+                  order.type === 'buy'
+                    ? 'PRICE_LESS_THAN_OR_EQUAL'
+                    : 'PRICE_GREATER_THAN_OR_EQUAL',
+                quantity: order.quantity,
+              });
               return;
             }
-            placeOrder(stock.id, type, quantity);
+            void placeOrder(stock.id, order.type, order.quantity);
           }}
         />
       </section>
@@ -156,8 +228,13 @@ export function StockDetailPage() {
           </p>
           <div className="schedule-summary compact">
             <span>상태 <strong>{stock.dividendEnabled ? '자동 지급' : '미지원'}</strong></span>
-            <span>다음 지급 <strong>{stock.dividendEnabled && dividendSchedule ? dateTime(dividendSchedule.nextPayoutAt) : '-'}</strong></span>
+            <span>다음 지급 <strong>{stock.dividendEnabled && dividendSchedule ? dateTime(dividendSchedule.nextRunAt ?? dividendSchedule.nextPayoutAt) : '-'}</strong></span>
           </div>
+          {stock.dividendEnabled && (
+            <button className="secondary-button" type="button" onClick={() => void claimDividend(stock.id)}>
+              배당 수령 요청
+            </button>
+          )}
         </article>
         <article className="panel">
           <div className="panel-title"><ReceiptText size={20} /><h2>최근 시나리오 로그</h2></div>
@@ -168,6 +245,12 @@ export function StockDetailPage() {
       </section>
     </div>
   );
+}
+
+function formatStockStatus(status?: string) {
+  if (status === 'SUSPENDED') return '거래정지';
+  if (status === 'UNLISTED') return '상장폐지';
+  return '상장';
 }
 
 function createPriceSeries(stock: Stock, range: ChartRange) {
@@ -206,4 +289,11 @@ function createPriceSeries(stock: Stock, range: ChartRange) {
       volume,
     };
   });
+}
+
+function getChartForRange(points: StockChartPoint[], stock: Stock, range: ChartRange) {
+  if (!points.length) return createPriceSeries(stock, range);
+  const take = range === 'day' ? 14 : range === 'hour' ? 24 : 60;
+  const sliced = points.slice(-take);
+  return sliced.length ? sliced : createPriceSeries(stock, range);
 }

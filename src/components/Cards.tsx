@@ -35,12 +35,19 @@ export function StockRow({
       <span className="stock-list-metric" data-label="등락률"><Change value={stock.changeRate} /></span>
       <span className="stock-list-metric" data-label="거래량">{compact(stock.volume)}</span>
       <span className="stock-list-metric" data-label="시가총액">{compact(stock.marketCap)}</span>
+      <span className="stock-list-metric" data-label="상태"><span className={stock.status === 'LISTED' ? 'pill cyan' : stock.status === 'SUSPENDED' ? 'pill purple' : 'pill negative'}>{formatStockStatus(stock.status)}</span></span>
       <span className="stock-list-metric" data-label="배당"><span className={stock.dividendEnabled ? 'pill cyan' : 'pill'}>{stock.dividendEnabled ? '배당' : '미지원'}</span></span>
       <button className="icon-button stock-favorite-button" onClick={onFavorite} aria-label="즐겨찾기">
         {favorite ? <Heart size={18} fill="currentColor" /> : <HeartOff size={18} />}
       </button>
     </div>
   );
+}
+
+function formatStockStatus(status?: string) {
+  if (status === 'SUSPENDED') return '거래정지';
+  if (status === 'UNLISTED') return '상장폐지';
+  return '상장';
 }
 
 export function RankingCard({ entry, highlight }: { entry: RankingEntry; highlight?: boolean }) {

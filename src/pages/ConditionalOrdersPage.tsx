@@ -20,19 +20,20 @@ export function ConditionalOrdersPage() {
           </div>
           {conditionalOrders.map((order) => {
             const stock = stocks.find((item) => item.id === order.stockId);
+            const statusLabel = formatOrderStatus(order.status, order.active);
             return (
               <div className="stock-row conditional-order-row" key={order.id}>
                 <Link to={`/stocks/${order.stockId}`} className="stock-title">
                   <span>
-                    <strong>{stock?.name}</strong>
-                    <small>{stock?.symbol}</small>
+                    <strong>{stock?.name ?? '알 수 없는 종목'}</strong>
+                    <small>{stock?.symbol ?? order.stockId}</small>
                   </span>
                 </Link>
                 <span className="order-metric" data-label="조건">{order.direction === 'buyBelow' ? '이하 매수' : '이상 매도'} {currency(order.targetPrice)}</span>
                 <strong className="order-metric" data-label="수량">{order.quantity.toLocaleString('ko-KR')}주</strong>
-                <span className="order-metric" data-label="상태"><span className={order.active ? 'pill cyan' : 'pill'}>{order.active ? '활성' : '비활성'}</span></span>
+                <span className="order-metric" data-label="상태"><span className={statusLabel.className}>{statusLabel.text}</span></span>
                 <small className="order-metric" data-label="기록">{order.executedAt ? `체결 ${dateTime(order.executedAt)}` : `등록 ${dateTime(order.createdAt)}`}</small>
-                <button className="icon-button order-cancel-button" disabled={!order.active} onClick={() => cancelConditionalOrder(order.id)} aria-label="조건 주문 취소">
+                <button className="icon-button order-cancel-button" disabled={!order.active} onClick={() => void cancelConditionalOrder(order.id)} aria-label="조건 주문 취소">
                   <X size={18} />
                 </button>
               </div>
@@ -46,4 +47,12 @@ export function ConditionalOrdersPage() {
       </section>
     </div>
   );
+}
+
+function formatOrderStatus(status?: string, active?: boolean) {
+  const value = String(status ?? (active ? 'ACTIVE' : 'CANCELLED')).toUpperCase();
+  if (value === 'TRIGGERED') return { text: '체결', className: 'pill cyan' };
+  if (value === 'FAILED') return { text: '실패', className: 'pill negative' };
+  if (value === 'CANCELLED') return { text: '취소', className: 'pill' };
+  return { text: '활성', className: 'pill purple' };
 }

@@ -20,8 +20,9 @@ export function Layout() {
   const [open, setOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>();
   const assetValue =
+    user?.totalAssetValue ??
     user?.holdings.reduce((sum, holding) => {
-      const stock = stocks.find((item) => item.id === holding.stockId);
+      const stock = holding.stock ?? stocks.find((item) => item.id === holding.stockId);
       return sum + (stock?.price ?? 0) * holding.quantity;
     }, user.cash) ?? 0;
 
@@ -30,6 +31,15 @@ export function Layout() {
     const timer = window.setTimeout(clearToast, 2800);
     return () => window.clearTimeout(timer);
   }, [toast, clearToast]);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setAuthMode('login');
+    };
+
+    window.addEventListener('vfandex:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('vfandex:unauthorized', handleUnauthorized);
+  }, []);
 
   useEffect(() => {
     const selector = [

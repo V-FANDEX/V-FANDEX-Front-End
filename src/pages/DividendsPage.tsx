@@ -3,9 +3,9 @@ import { useFandexStore } from '../store/useFandexStore';
 import { currency, dateTime } from '../utils/format';
 
 export function DividendsPage() {
-  const { user, stocks, transactions, dividendSchedule } = useFandexStore();
+  const { user, stocks, transactions, dividendSchedule, claimDividend } = useFandexStore();
   const dividendStocks = user?.holdings
-    .map((holding) => ({ holding, stock: stocks.find((stock) => stock.id === holding.stockId) }))
+    .map((holding) => ({ holding, stock: holding.stock ?? stocks.find((stock) => stock.id === holding.stockId) }))
     .filter((row) => row.stock?.dividendEnabled) ?? [];
   const dividendTx = transactions.filter((tx) => tx.type === 'dividend');
 
@@ -22,8 +22,12 @@ export function DividendsPage() {
           <span>상태 <strong>{dividendSchedule?.status === 'active' ? '활성' : '일시정지'}</strong></span>
           <span>지급 주기 <strong>{formatFrequency(dividendSchedule?.frequency)}</strong></span>
           <span>지급 시각 <strong>{dividendSchedule?.payoutTime} {dividendSchedule?.timezone}</strong></span>
-          <span>다음 지급 <strong>{dividendSchedule ? dateTime(dividendSchedule.nextPayoutAt) : '-'}</strong></span>
+          <span>다음 지급 <strong>{dividendSchedule ? dateTime(dividendSchedule.nextRunAt ?? dividendSchedule.nextPayoutAt) : '-'}</strong></span>
+          <span>최근 지급 <strong>{dividendSchedule?.lastRunAt ? dateTime(dividendSchedule.lastRunAt) : '-'}</strong></span>
         </div>
+        <button className="secondary-button" type="button" onClick={() => void claimDividend()}>
+          시스템 배당 수령 요청
+        </button>
       </section>
       <section className="dividend-grid">
         {dividendStocks.map(({ holding, stock }) => {
@@ -33,7 +37,12 @@ export function DividendsPage() {
             <article className="dividend-card" key={stock.id}>
               <div className="panel-title"><Gift size={20} /><h2>{stock.name}</h2></div>
               <p>기본 배당률 {stock.dividendRate}% · 다음 자동 지급 예상액 {currency(expected)}</p>
-              <span className="pill cyan">자동 지급 예정</span>
+              <div className="dividend-card-actions">
+                <span className="pill cyan">자동 지급 예정</span>
+                <button className="ghost-button" type="button" onClick={() => void claimDividend(stock.id)}>
+                  종목 배당 수령
+                </button>
+              </div>
             </article>
           );
         })}
@@ -41,10 +50,10 @@ export function DividendsPage() {
       <section className="panel">
         <div className="panel-title"><RotateCcw size={20} /><h2>배당 수령 기록</h2></div>
         {dividendTx.map((tx, index) => {
-          const stock = stocks.find((item) => item.id === tx.stockId);
+          const stock = tx.stock ?? stocks.find((item) => item.id === tx.stockId);
           return (
             <div className="history-row" key={tx.id}>
-              <span>{stock?.name}</span>
+              <span>{stock?.name ?? '시스템 배당'}</span>
               <strong>{currency(tx.total)}</strong>
               <small>{index + 1}회차 · {dateTime(tx.createdAt)}</small>
             </div>

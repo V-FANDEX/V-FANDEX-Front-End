@@ -1,7 +1,9 @@
-export type MarketCategory = 'streamer' | 'singer' | 'character' | 'anime';
+export type MarketCategory = string;
 export type Trend = 'up' | 'down' | 'flat';
 export type Role = 'user' | 'admin' | 'ai';
 export type RiskProfile = 'aggressive' | 'stable' | 'random' | 'focused';
+export type StockStatus = 'LISTED' | 'SUSPENDED' | 'UNLISTED' | string;
+export type StockChartInterval = 'day' | 'hour' | 'minute';
 
 export interface Market {
   id: MarketCategory;
@@ -19,12 +21,14 @@ export interface Market {
 export interface Stock {
   id: string;
   marketId: MarketCategory;
+  market?: Market;
   name: string;
   symbol: string;
   price: number;
   previousClose: number;
   changeRate: number;
   volume: number;
+  tradeValue: number;
   marketCap: number;
   dividendEnabled: boolean;
   dividendRate: number;
@@ -33,18 +37,25 @@ export interface Stock {
   tags: string[];
   volatility: 'S' | 'A' | 'B' | 'C';
   active: boolean;
+  status: StockStatus;
+  isTradingSuspended?: boolean;
   metadata: Record<string, string>;
+  totalSupply?: number;
+  circulatingSupply?: number;
 }
 
 export interface Holding {
   stockId: string;
   quantity: number;
   averagePrice: number;
+  realizedProfit?: number;
+  stock?: Stock;
 }
 
 export interface Transaction {
   id: string;
   stockId: string;
+  stock?: Stock;
   type: 'buy' | 'sell' | 'dividend';
   quantity: number;
   price: number;
@@ -59,6 +70,7 @@ export interface ConditionalOrder {
   targetPrice: number;
   quantity: number;
   active: boolean;
+  status?: 'ACTIVE' | 'TRIGGERED' | 'CANCELLED' | 'FAILED' | string;
   createdAt: string;
   executedAt?: string;
 }
@@ -69,16 +81,24 @@ export interface DividendSchedule {
   payoutTime: string;
   timezone: string;
   nextPayoutAt: string;
+  nextRunAt?: string;
   eligiblePolicy: string;
   status: 'active' | 'paused';
   lastRunAt?: string;
+  baseDividendRate?: number;
+  claimCountMultiplier?: number;
+  claimCooldownMinutes?: number;
+  seasonalClaimLimit?: number;
 }
 
 export interface UserAccount {
   id: string;
+  email?: string;
   name: string;
   role: Role;
   cash: number;
+  initialCash?: number;
+  totalAssetValue?: number;
   totalDividend: number;
   favoriteStockIds: string[];
   holdings: Holding[];
@@ -90,10 +110,24 @@ export interface RankingEntry {
   role: Role;
   rank: number;
   totalAssets: number;
+  cash?: number;
   returnRate: number;
+  realizedProfit?: number;
   dividendTotal: number;
   tradeVolume: number;
   favoriteMarket?: string;
+}
+
+export interface ScenarioImpact {
+  id: string;
+  stockId: string;
+  stockName?: string;
+  marketId: MarketCategory;
+  marketName?: string;
+  direction: Trend;
+  impactRate: number;
+  beforePrice: number;
+  afterPrice: number;
 }
 
 export interface ScenarioLog {
@@ -105,6 +139,10 @@ export interface ScenarioLog {
   direction: Trend;
   strength: number;
   description: string;
+  content?: string;
+  sentiment?: string;
+  impactLevel?: number;
+  impacts?: ScenarioImpact[];
   occurredAt: string;
 }
 
@@ -114,4 +152,82 @@ export interface SeasonInfo {
   startsAt: string;
   endsAt: string;
   day: number;
+  initialCash?: number;
+  status?: string;
+}
+
+export interface StockChartPoint {
+  label: string;
+  price: number;
+  volume: number;
+  interval?: StockChartInterval;
+  bucket?: string;
+  openPrice?: number;
+  highPrice?: number;
+  lowPrice?: number;
+  closePrice?: number;
+  changeRate?: number;
+  count?: number;
+  occurredAt?: string;
+}
+
+export interface AdminDashboardSeriesPoint {
+  date: string;
+  count: number;
+}
+
+export interface AdminMarketVolumePoint {
+  marketId: string;
+  marketName: string;
+  tradeVolume: number;
+  tradeCount: number;
+}
+
+export interface AdminDashboard {
+  totalUsers: number;
+  activeUsers: number;
+  aiAccountCount: number;
+  stockCount: number;
+  marketCount: number;
+  totalMarketCap: number;
+  dailyTradeVolume: number;
+  userGrowthSeries: AdminDashboardSeriesPoint[];
+  marketVolumeSeries: AdminMarketVolumePoint[];
+}
+
+export interface ScenarioAppliedStock {
+  stockId: string;
+  stockName: string;
+  beforePrice: number;
+  afterPrice: number;
+  appliedRate: number;
+  impactReason?: string;
+}
+
+export interface ScenarioConditionalOrderResult {
+  orderId?: string;
+  stockId?: string;
+  status?: string;
+  type?: string;
+  quantity?: number;
+  reason?: string;
+}
+
+export interface ScenarioAiTradeResult {
+  aiAccountId?: string;
+  userId?: string;
+  action: string;
+  stockId?: string;
+  quantity?: number;
+  tradeId?: string;
+  reason?: string;
+}
+
+export interface ScenarioApplyResult {
+  id: string;
+  title: string;
+  affectedStocks: ScenarioAppliedStock[];
+  conditionalOrderResults: ScenarioConditionalOrderResult[];
+  aiTradeSummary?: string;
+  aiTradeResults: ScenarioAiTradeResult[];
 }

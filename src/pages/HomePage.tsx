@@ -11,8 +11,9 @@ export function HomePage() {
   const totalMarketCap = markets.reduce((sum, market) => sum + market.marketCap, 0);
   const totalVolume = markets.reduce((sum, market) => sum + market.volume, 0);
   const assetValue =
+    user?.totalAssetValue ??
     user?.holdings.reduce((sum, holding) => {
-      const stock = stocks.find((item) => item.id === holding.stockId);
+      const stock = holding.stock ?? stocks.find((item) => item.id === holding.stockId);
       return sum + (stock?.price ?? 0) * holding.quantity;
     }, user.cash) ?? 0;
   const gainers = [...stocks].sort((a, b) => b.changeRate - a.changeRate).slice(0, 3);
@@ -48,7 +49,7 @@ export function HomePage() {
         <StatCard label="전체 시가총액" value={currency(totalMarketCap)} hint={`${markets.length}개 장 활성`} />
         <StatCard label="오늘 거래량" value={compact(totalVolume)} hint="AI 계정 포함" />
         <StatCard label="내 총 자산" value={currency(assetValue)} hint={`가상 현금 ${currency(user?.cash ?? 0)}`} />
-        <StatCard label="급등 종목" value={gainers[0]?.name ?? '-'} hint={`${gainers[0]?.changeRate.toFixed(2)}%`} />
+        <StatCard label="급등 종목" value={gainers[0]?.name ?? '-'} hint={gainers[0] ? `${gainers[0].changeRate.toFixed(2)}%` : undefined} />
       </section>
 
       <div className="section-heading">
@@ -121,7 +122,7 @@ export function HomePage() {
               key={stock.id}
               stock={stock}
               favorite
-              onFavorite={() => toggleFavorite(stock.id)}
+              onFavorite={() => void toggleFavorite(stock.id)}
             />
           ))}
         </div>

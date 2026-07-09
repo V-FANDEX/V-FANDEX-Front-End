@@ -41,7 +41,7 @@ import { StatCard } from '../components/Cards';
 import { adminApi } from '../services/adminApi';
 import { useFandexStore } from '../store/useFandexStore';
 import type { AdminSection } from '../types/admin';
-import type { AdminDashboard, DividendSchedule, Market, RankingEntry, ScenarioApplyResult, Stock } from '../types';
+import type { AdminDashboard, DividendSchedule, Market, RankingEntry, ScenarioApplyResult, SeasonInfo, SeasonResetResult, Stock } from '../types';
 import { compact, currency, dateTime } from '../utils/format';
 
 interface AdminNavItem {
@@ -112,6 +112,7 @@ export function AdminPage() {
   const [adminMarkets, setAdminMarkets] = useState<Market[]>([]);
   const [adminStocks, setAdminStocks] = useState<Stock[]>([]);
   const [scenarioApplyResult, setScenarioApplyResult] = useState<ScenarioApplyResult | null>(null);
+  const [seasonResetResult, setSeasonResetResult] = useState<SeasonResetResult | null>(null);
   const [isAdminDataLoading, setIsAdminDataLoading] = useState(false);
   const adminMarketsForView = adminMarkets.length ? adminMarkets : markets;
   const adminStocksForView = adminStocks.length ? adminStocks : stocks;
@@ -170,7 +171,15 @@ export function AdminPage() {
       volume: market.volume,
       tradeCount: 0,
     }));
-  const openActionRequest = (action: string) => setActionRequest(createAdminActionRequest(activeSection, action));
+  const openActionRequest = (action: string) => {
+    const request = createAdminActionRequest(activeSection, action);
+    if (activeSection === 'season' && action === '시즌 초기화' && season?.id) {
+      request.fields = request.fields.map((field) =>
+        field.name === 'seasonId' ? { ...field, defaultValue: season.id, placeholder: season.id } : field,
+      );
+    }
+    setActionRequest(request);
+  };
   const submitActionRequest = async (values: Record<string, string | boolean>) => {
     if (!actionRequest) return;
     setIsSubmittingAction(true);
@@ -190,8 +199,19 @@ export function AdminPage() {
       if (actionRequest.section === 'scenarios' && hasScenarioApplyResult(result.data)) {
         setScenarioApplyResult(result.data);
       }
-      notify(`${actionRequest.action} 요청이 접수되었습니다. (${result.requestId})`);
-      await Promise.all([load(), refreshAdminData(true)]);
+      if (actionRequest.section === 'season' && actionRequest.action === '시즌 초기화' && hasSeasonResetResult(result.data)) {
+        setSeasonResetResult(result.data);
+        notify(`시즌 초기화 완료 · seed 종목 ${result.data.seedStocksApplied}개 적용`);
+        const refreshResults = await Promise.allSettled([load(), refreshAdminData(true), adminApi.getSeasons()]);
+        if (refreshResults.some((item) => item.status === 'rejected')) {
+          notify('초기화는 완료됐지만 일부 데이터 새로고침에 실패했습니다. 새로고침을 눌러주세요.');
+        }
+        setActionRequest(null);
+        return;
+      } else {
+        notify(`${actionRequest.action} 요청이 접수되었습니다. (${result.requestId})`);
+        await Promise.all([load(), refreshAdminData(true)]);
+      }
       setActionRequest(null);
     } catch (error) {
       notify(error instanceof Error ? error.message : '관리자 요청 처리에 실패했습니다.');
@@ -207,6 +227,7 @@ export function AdminPage() {
           <span className="eyebrow">Admin Console</span>
           <h1>운영 센터</h1>
           <p>{season?.name} · DAY {season?.day}</p>
+          {season?.id && <code className="admin-season-id">Season ID: {season.id}</code>}
         </div>
         <nav className="admin-sidebar-nav" aria-label="관리자 메뉴">
           {adminNavItems.map((item) => (
@@ -265,6 +286,7 @@ export function AdminPage() {
         )}
         {activeSection === 'season' && (
           <SeasonSection
+            season={season}
             totalUsers={users.length}
             totalVolume={totalVolume}
             onAction={openActionRequest}
@@ -368,6 +390,9 @@ export function AdminPage() {
       {scenarioApplyResult && (
         <ScenarioApplyResultModal result={scenarioApplyResult} onClose={() => setScenarioApplyResult(null)} />
       )}
+      {seasonResetResult && (
+        <SeasonResetResultModal result={seasonResetResult} onClose={() => setSeasonResetResult(null)} />
+      )}
     </div>
   );
 }
@@ -466,11 +491,22 @@ function OverviewSection({
   );
 }
 
-function SeasonSection({ totalUsers, totalVolume, onAction }: { totalUsers: number; totalVolume: number; onAction: (message: string) => void }) {
+function SeasonSection({
+  season,
+  totalUsers,
+  totalVolume,
+  onAction,
+}: {
+  season?: SeasonInfo;
+  totalUsers: number;
+  totalVolume: number;
+  onAction: (message: string) => void;
+}) {
   return (
     <AdminWorkArea
       summary={[
-        ['시즌 상태', '진행 중'],
+        ['시즌 상태', season?.status ?? '진행 중'],
+        ['현재 시즌 ID', season?.id ?? '-'],
         ['지급 대상', `${totalUsers}명`],
         ['오늘 거래량', compact(totalVolume)],
       ]}
@@ -705,6 +741,10 @@ function hasScenarioApplyResult(value: unknown): value is ScenarioApplyResult {
   return Boolean(value && typeof value === 'object' && 'affectedStocks' in value);
 }
 
+function hasSeasonResetResult(value: unknown): value is SeasonResetResult {
+  return Boolean(value && typeof value === 'object' && 'seedStocksApplied' in value);
+}
+
 function buildDividendSchedulePatch(action: string, values: Record<string, string | boolean>): Partial<DividendSchedule> {
   if (action === '배당 지급 스케줄 설정') {
     const enabled = values.enabled === true;
@@ -853,6 +893,70 @@ function ScenarioApplyResultModal({ result, onClose }: { result: ScenarioApplyRe
   );
 }
 
+function SeasonResetResultModal({ result, onClose }: { result: SeasonResetResult; onClose: () => void }) {
+  const clearedRows = [
+    ['유저 초기화', result.usersReset],
+    ['보유 자산 삭제', result.holdingsCleared],
+    ['조건 주문 삭제', result.conditionalOrdersCleared],
+    ['관심 종목 삭제', result.watchlistItemsCleared],
+    ['거래 내역 삭제', result.tradesCleared],
+    ['배당 기록 삭제', result.dividendsCleared],
+    ['랭킹 삭제', result.rankingsCleared],
+    ['시나리오 영향 삭제', result.scenarioImpactsCleared],
+    ['시나리오 삭제', result.scenariosCleared],
+    ['가격 히스토리 삭제', result.priceHistoriesCleared],
+    ['비 seed 종목 삭제', result.nonSeedStocksDeleted],
+    ['비 seed 시장 삭제', result.nonSeedMarketsDeleted],
+  ] as const;
+  const seedRows = [
+    ['seed 시장 적용', result.seedMarketsApplied],
+    ['seed 종목 적용', result.seedStocksApplied],
+    ['seed 가격 히스토리 생성', result.seedPriceHistoriesCreated],
+  ] as const;
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="season-reset-result-title">
+      <section className="modal scenario-result-modal">
+        <div className="admin-request-head">
+          <div>
+            <span className="eyebrow">Season Reset Complete</span>
+            <h3 id="season-reset-result-title">시즌 초기화 결과</h3>
+            <p>{result.resetMode} · {result.seasonId}</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="결과 닫기">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="scenario-result-grid">
+          <article className="scenario-result-section">
+            <h4>삭제 / 초기화</h4>
+            {clearedRows.map(([label, value]) => (
+              <div className="season-reset-row" key={label}>
+                <span>{label}</span>
+                <strong>{value.toLocaleString('ko-KR')}</strong>
+              </div>
+            ))}
+          </article>
+          <article className="scenario-result-section">
+            <h4>Seed 재적용</h4>
+            {seedRows.map(([label, value]) => (
+              <div className="season-reset-row" key={label}>
+                <span>{label}</span>
+                <strong>{value.toLocaleString('ko-KR')}</strong>
+              </div>
+            ))}
+          </article>
+        </div>
+
+        <div className="modal-actions">
+          <button className="primary-button" type="button" onClick={onClose}>확인</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function AdminForm({ title, fields }: { title: string; fields: string[] }) {
   return (
     <form className="panel admin-form" onSubmit={(event) => event.preventDefault()}>
@@ -908,6 +1012,16 @@ function AdminActionModal({
             <X size={18} />
           </button>
         </div>
+        {request.section === 'season' && request.action === '시즌 초기화' && (
+          <div className="danger-zone-note">
+            <strong>Seed 카탈로그 기준 초기화</strong>
+            <p>
+              seed에 없는 시장/종목, 보유 자산, 조건 주문, 관심 종목, 거래 내역, 배당 기록, 랭킹,
+              시나리오, 시나리오 영향 기록, 가격 히스토리가 삭제됩니다.
+            </p>
+            <p>일반 유저, 관리자, AI 계정과 시즌 레코드는 유지되지만 USER/AI 자산은 시즌 초기 자금으로 리셋됩니다.</p>
+          </div>
+        )}
         <div className="admin-request-fields">
           {request.fields.map((field) => (
             <AdminActionFieldControl key={field.name} field={field} />
@@ -1071,7 +1185,7 @@ function createAdminActionRequest(section: AdminSection, action: string): AdminA
 function getActionDescription(section: AdminSection, action: string) {
   const sectionName = adminNavItems.find((item) => item.id === section)?.label ?? '관리자';
   const descriptions: Record<string, string> = {
-    '시즌 초기화': '시즌 데이터, 랭킹, 주문 상태를 재시작하기 전에 보존 범위와 확인 문구를 검증합니다.',
+    '시즌 초기화': '시즌 초기화를 실행하면 seed에 정의되지 않은 시장/종목과 모든 거래, 보유 자산, 조건 주문, 관심 종목, 배당 기록, 랭킹, 시나리오, 가격 히스토리가 삭제됩니다. 유저/AI 계정은 유지되지만 자산은 시즌 초기 자금으로 리셋됩니다.',
     '사용자 초기 자금 설정': '신규/기존 사용자에게 적용할 초기 자금 정책을 변경합니다.',
     '전체 사용자 초기 자금 지급': '대상 사용자 그룹에 일괄 가상 자금을 지급합니다.',
     '전체 사용자 자금 리셋': '보유 현금과 미체결 주문을 기준값으로 되돌리는 위험 작업입니다.',
@@ -1121,14 +1235,12 @@ function getActionFields(section: AdminSection, action: string): AdminActionFiel
 
   if (section === 'season') {
     if (action === '시즌 초기화') {
-      return withBase([
+      return [
         { name: 'seasonId', label: '시즌 ID', placeholder: '초기화할 시즌 ID' },
-        { name: 'newSeasonName', label: '새 시즌명', placeholder: '시즌 4: 신규 랠리' },
-        { name: 'resetScope', label: '초기화 범위', type: 'select', options: ['랭킹+포트폴리오+주문', '랭킹만', '포트폴리오만'] },
-        { name: 'initialCash', label: '초기 현금', type: 'number', placeholder: '10000000' },
-        { name: 'preserveMarkets', label: '장/종목 데이터 보존', type: 'checkbox', defaultValue: 'true' },
-        { name: 'confirmText', label: '확인 문구', placeholder: '시즌 초기화' },
-      ]);
+        { name: 'understandDeletionScope', label: '삭제 범위를 이해했습니다', type: 'checkbox' },
+        { name: 'confirmText', label: 'RESET 입력', placeholder: 'RESET' },
+        { name: 'requestReason', label: '초기화 사유', type: 'textarea', placeholder: '운영 로그에 남길 사유를 입력하세요.' },
+      ];
     }
     if (action === '사용자 초기 자금 설정') {
       return withBase([

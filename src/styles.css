@@ -1946,6 +1946,46 @@ textarea {
   color: var(--muted);
 }
 
+.danger-zone-note {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 14px;
+  color: #ffd7de;
+  border: 1px solid rgba(255, 100, 124, 0.32);
+  border-radius: 8px;
+  background: rgba(255, 100, 124, 0.1);
+}
+
+.danger-zone-note strong {
+  color: #fff0f3;
+}
+
+.danger-zone-note p {
+  margin: 0;
+  color: #ffc1cb;
+}
+
+.season-reset-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.season-reset-row span {
+  color: var(--muted);
+}
+
+.season-reset-row strong {
+  color: var(--text);
+  white-space: nowrap;
+}
+
 .admin-request-field.wide,
 .admin-request-check {
   grid-column: 1 / -1;
@@ -2421,6 +2461,20 @@ textarea {
   color: var(--muted);
 }
 
+.admin-season-id {
+  display: block;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 7px 9px;
+  overflow-wrap: anywhere;
+  color: var(--cyan);
+  border: 1px solid rgba(56, 213, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(56, 213, 255, 0.07);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .admin-sidebar-nav {
   display: grid;
   gap: 7px;
@@ -2586,6 +2640,7 @@ textarea {
   font-size: 19px;
   line-height: 1.2;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .admin-dividend-controls {

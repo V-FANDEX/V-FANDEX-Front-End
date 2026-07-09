@@ -55,9 +55,14 @@ export function StockDetailPage() {
     fandexApi
       .getStock(stockId)
       .then(setRemoteStock)
-      .catch(() => setRemoteStock(undefined))
+      .catch((error) => {
+        setRemoteStock(undefined);
+        if (isNotFound(error)) {
+          notify('초기화로 삭제된 종목입니다.');
+        }
+      })
       .finally(() => setStockChecked(true));
-  }, [stockId, stocks]);
+  }, [notify, stockId, stocks]);
 
   useEffect(() => {
     if (!stockId) return;
@@ -251,6 +256,10 @@ function formatStockStatus(status?: string) {
   if (status === 'SUSPENDED') return '거래정지';
   if (status === 'UNLISTED') return '상장폐지';
   return '상장';
+}
+
+function isNotFound(error: unknown) {
+  return Boolean(error && typeof error === 'object' && 'status' in error && (error as { status?: number }).status === 404);
 }
 
 function createPriceSeries(stock: Stock, range: ChartRange) {

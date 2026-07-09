@@ -1,7 +1,7 @@
 import type { AdminSection } from '../types/admin';
-import type { AdminDashboard, Market, ScenarioApplyResult, Stock } from '../types';
+import type { AdminDashboard, Market, ScenarioApplyResult, SeasonResetResult, Stock } from '../types';
 import { apiClient, jsonBody, withQuery } from './apiClient';
-import { mapAdminDashboard, mapDividendSchedule, mapMarket, mapScenarioApplyResult, mapStock, toNumber } from './mappers';
+import { mapAdminDashboard, mapDividendSchedule, mapMarket, mapScenarioApplyResult, mapSeasonResetResult, mapStock, toNumber } from './mappers';
 
 export interface AdminActionPayload {
   section: AdminSection;
@@ -102,8 +102,8 @@ export const adminApi = {
   getSeasons: () => apiClient<unknown>('/seasons'),
   createSeason: (body: AdminSeasonPayload) =>
     apiClient<unknown>('/admin/seasons', { method: 'POST', body: jsonBody(body) }),
-  resetSeason: (id: string) =>
-    apiClient<unknown>(`/admin/seasons/${id}/reset`, { method: 'POST', body: jsonBody({ confirm: true }) }),
+  resetSeason: async (id: string): Promise<SeasonResetResult> =>
+    mapSeasonResetResult(await apiClient<unknown>(`/admin/seasons/${id}/reset`, { method: 'POST', body: jsonBody({ confirm: true }) })),
 
   getDividendSettings: async () => mapDividendSchedule(await apiClient<unknown>('/admin/dividend-settings')),
   updateDividendSettings: async (body: AdminDividendSettingsPayload) =>
@@ -275,7 +275,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
 
   if (section === 'season') {
     if (action === '시즌 초기화') {
-      requireConfirm(values.confirmText, '시즌 초기화');
+      requireSeasonResetConfirm(values);
       return adminApi.resetSeason(requiredId(values.seasonId, '시즌 ID'));
     }
     if (values.newSeasonName || values.startsAt || values.endsAt) {
@@ -326,6 +326,14 @@ function requireConfirm(value: unknown, phrase: string) {
   if (String(value ?? '').trim() !== phrase) {
     throw new Error(`위험 작업을 실행하려면 확인 문구 "${phrase}"를 정확히 입력해주세요.`);
   }
+}
+
+function requireSeasonResetConfirm(values: Record<string, string | boolean>) {
+  if (values.understandDeletionScope !== true) {
+    throw new Error('시즌 초기화 삭제 범위를 이해했다는 체크가 필요합니다.');
+  }
+
+  requireConfirm(values.confirmText, 'RESET');
 }
 
 function parseActiveState(value: unknown) {

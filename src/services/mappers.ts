@@ -9,6 +9,7 @@ import type {
   ScenarioImpact,
   ScenarioLog,
   SeasonInfo,
+  SeasonResetResult,
   Stock,
   StockChartPoint,
   StockChartInterval,
@@ -366,6 +367,29 @@ export function mapAdminDashboard(raw: unknown): AdminDashboard {
         tradeCount: toNumber(point.tradeCount),
       };
     }),
+  };
+}
+
+export function mapSeasonResetResult(raw: unknown): SeasonResetResult {
+  const source = asRecord(raw);
+  return {
+    seasonId: String(source.seasonId ?? ''),
+    resetMode: String(source.resetMode ?? 'SEED_CATALOG_ONLY'),
+    usersReset: toNumber(source.usersReset),
+    holdingsCleared: toNumber(source.holdingsCleared),
+    conditionalOrdersCleared: toNumber(source.conditionalOrdersCleared),
+    watchlistItemsCleared: toNumber(source.watchlistItemsCleared),
+    tradesCleared: toNumber(source.tradesCleared),
+    dividendsCleared: toNumber(source.dividendsCleared),
+    rankingsCleared: toNumber(source.rankingsCleared),
+    scenarioImpactsCleared: toNumber(source.scenarioImpactsCleared),
+    scenariosCleared: toNumber(source.scenariosCleared),
+    priceHistoriesCleared: toNumber(source.priceHistoriesCleared),
+    nonSeedStocksDeleted: toNumber(source.nonSeedStocksDeleted),
+    nonSeedMarketsDeleted: toNumber(source.nonSeedMarketsDeleted),
+    seedMarketsApplied: toNumber(source.seedMarketsApplied),
+    seedStocksApplied: toNumber(source.seedStocksApplied),
+    seedPriceHistoriesCreated: toNumber(source.seedPriceHistoriesCreated),
   };
 }
 

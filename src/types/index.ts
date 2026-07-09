@@ -195,6 +195,26 @@ export interface AdminDashboard {
   marketVolumeSeries: AdminMarketVolumePoint[];
 }
 
+export interface SeasonResetResult {
+  seasonId: string;
+  resetMode: 'SEED_CATALOG_ONLY' | string;
+  usersReset: number;
+  holdingsCleared: number;
+  conditionalOrdersCleared: number;
+  watchlistItemsCleared: number;
+  tradesCleared: number;
+  dividendsCleared: number;
+  rankingsCleared: number;
+  scenarioImpactsCleared: number;
+  scenariosCleared: number;
+  priceHistoriesCleared: number;
+  nonSeedStocksDeleted: number;
+  nonSeedMarketsDeleted: number;
+  seedMarketsApplied: number;
+  seedStocksApplied: number;
+  seedPriceHistoriesCreated: number;
+}
+
 export interface ScenarioAppliedStock {
   stockId: string;
   stockName: string;

@@ -56,8 +56,17 @@ interface AdminActionField {
   label: string;
   type?: 'text' | 'number' | 'date' | 'select' | 'textarea' | 'checkbox';
   placeholder?: string;
-  options?: string[];
+  options?: AdminSelectOption[];
   defaultValue?: string;
+}
+
+type AdminSelectOption = string | { label: string; value: string };
+
+interface AdminActionOptions {
+  marketOptions: AdminSelectOption[];
+  stockOptions: AdminSelectOption[];
+  aiOptions: AdminSelectOption[];
+  userOptions: AdminSelectOption[];
 }
 
 interface AdminActionRequest {
@@ -118,8 +127,8 @@ export function AdminPage() {
   const adminStocksForView = adminStocks.length ? adminStocks : stocks;
   const totalCap = adminDashboard?.totalMarketCap ?? adminMarketsForView.reduce((sum, market) => sum + market.marketCap, 0);
   const totalVolume = adminDashboard?.dailyTradeVolume ?? adminMarketsForView.reduce((sum, market) => sum + market.volume, 0);
-  const users = rankings.filter((entry) => entry.role !== 'ai');
-  const aiAccounts = rankings.filter((entry) => entry.role === 'ai');
+  const users = useMemo(() => rankings.filter((entry) => entry.role !== 'ai'), [rankings]);
+  const aiAccounts = useMemo(() => rankings.filter((entry) => entry.role === 'ai'), [rankings]);
   const activeDividendStocks = adminStocksForView.filter((stock) => stock.dividendEnabled);
 
   const refreshAdminData = useCallback(async (silent = false) => {
@@ -171,14 +180,33 @@ export function AdminPage() {
       volume: market.volume,
       tradeCount: 0,
     }));
-  const openActionRequest = (action: string) => {
-    const request = createAdminActionRequest(activeSection, action);
-    if (activeSection === 'season' && action === '시즌 초기화' && season?.id) {
+  const actionOptions = useMemo<AdminActionOptions>(
+    () => ({
+      marketOptions: buildMarketOptions(adminMarketsForView),
+      stockOptions: buildStockOptions(adminStocksForView),
+      aiOptions: buildAiOptions(aiAccounts),
+      userOptions: buildUserOptions(rankings),
+    }),
+    [adminMarketsForView, adminStocksForView, aiAccounts, rankings],
+  );
+  const buildCurrentActionRequest = useCallback((section: AdminSection, action: string) => {
+    const request = createAdminActionRequest(section, action, actionOptions);
+    if (section === 'season' && action === '시즌 초기화' && season?.id) {
       request.fields = request.fields.map((field) =>
         field.name === 'seasonId' ? { ...field, defaultValue: season.id, placeholder: season.id } : field,
       );
     }
-    setActionRequest(request);
+    return request;
+  }, [actionOptions, season?.id]);
+
+  useEffect(() => {
+    setActionRequest((current) => (
+      current ? buildCurrentActionRequest(current.section, current.action) : current
+    ));
+  }, [buildCurrentActionRequest]);
+
+  const openActionRequest = (action: string) => {
+    setActionRequest(buildCurrentActionRequest(activeSection, action));
   };
   const submitActionRequest = async (values: Record<string, string | boolean>) => {
     if (!actionRequest) return;
@@ -510,7 +538,7 @@ function SeasonSection({
         ['지급 대상', `${totalUsers}명`],
         ['오늘 거래량', compact(totalVolume)],
       ]}
-      actions={['시즌 초기화', '사용자 초기 자금 설정', '전체 사용자 초기 자금 지급', '전체 사용자 자금 리셋']}
+      actions={['새 시즌 생성', '시즌 초기화']}
       onAction={onAction}
       formTitle="시즌 운영 설정"
       fields={['시즌명', '시작일', '종료일', '사용자 초기 자금', '랭킹 집계 기준']}
@@ -577,7 +605,7 @@ function ScenarioSection({ scenarioCount, rows, onAction }: { scenarioCount: num
         ['BIG 영향도', '82'],
         ['자동 적용', '활성'],
       ]}
-      actions={['메인 시나리오 생성 요청', 'BIG 시나리오 생성 요청', '소규모 시나리오 생성 요청', '시나리오 적용', '시나리오 적용 내역 확인']}
+      actions={['메인 시나리오 생성 요청', 'BIG 시나리오 생성 요청', '소규모 시나리오 생성 요청', '시나리오 적용']}
       onAction={onAction}
       formTitle="시나리오 생성 조건"
       fields={['시나리오 유형', '영향 장', '영향 종목', '변동 방향', '변동 강도']}
@@ -635,7 +663,7 @@ function DividendSection({
               <RefreshCw size={17} /> 배당 즉시 실행
             </button>
           </div>
-          <ActionGrid actions={['배당금 정책 설정', '배당 지급 스케줄 설정', '다음 지급 시각 변경', '지급 스케줄 일시정지', '수령 횟수 보정', '회복 계수 초기화']} onAction={onAction} />
+          <ActionGrid actions={['배당금 정책 설정', '배당 지급 스케줄 설정', '다음 지급 시각 변경', '지급 스케줄 일시정지']} onAction={onAction} />
         </article>
       </section>
     </>
@@ -650,7 +678,7 @@ function UsersSection({ rows, onAction }: { rows: Array<Array<ReactNode>>; onAct
         ['내 순위 강조', '활성'],
         ['랭킹 정책', '총 자산'],
       ]}
-      actions={['유저 권한 변경', '유저 거래 제한', '랭킹 초기화', '계정 활동 기록 확인']}
+      actions={['유저 권한 변경', '유저 거래 제한', '랭킹 초기화']}
       onAction={onAction}
       formTitle="유저 관리"
       fields={['유저명', '권한', '초기 자금', '상태 메모']}
@@ -1115,9 +1143,17 @@ function AdminNumberInput({ field }: { field: AdminActionField }) {
 }
 
 function AdminActionSelect({ field }: { field: AdminActionField }) {
-  const options = field.options ?? [];
-  const [selected, setSelected] = useState(field.defaultValue ?? options[0] ?? '');
+  const options = useMemo(() => (field.options ?? []).map(toSelectOption), [field.options]);
+  const [selected, setSelected] = useState(field.defaultValue ?? options[0]?.value ?? '');
   const [open, setOpen] = useState(false);
+  const selectedOption = options.find((option) => option.value === selected);
+
+  useEffect(() => {
+    setSelected((current) => {
+      if (options.some((option) => option.value === current)) return current;
+      return field.defaultValue ?? options[0]?.value ?? '';
+    });
+  }, [field.defaultValue, options]);
 
   return (
     <label className="field admin-request-field">
@@ -1131,25 +1167,25 @@ function AdminActionSelect({ field }: { field: AdminActionField }) {
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >
-          <span>{selected || field.placeholder || '선택'}</span>
+          <span>{selectedOption?.label || selected || field.placeholder || '선택'}</span>
           <ChevronDown size={17} />
         </button>
         {open && (
           <div className="admin-select-menu" role="listbox">
             {options.map((option) => (
               <button
-                key={option}
+                key={option.value || option.label}
                 type="button"
-                className={selected === option ? 'selected' : ''}
+                className={selected === option.value ? 'selected' : ''}
                 role="option"
-                aria-selected={selected === option}
+                aria-selected={selected === option.value}
                 onClick={() => {
-                  setSelected(option);
+                  setSelected(option.value);
                   setOpen(false);
                 }}
               >
-                <span>{option}</span>
-                {selected === option && <Check size={16} />}
+                <span>{option.label}</span>
+                {selected === option.value && <Check size={16} />}
               </button>
             ))}
           </div>
@@ -1172,353 +1208,315 @@ function formatNumberStep(value: number, step: number) {
   return value.toFixed(decimals);
 }
 
-function createAdminActionRequest(section: AdminSection, action: string): AdminActionRequest {
+function createAdminActionRequest(
+  section: AdminSection,
+  action: string,
+  options: AdminActionOptions = defaultActionOptions,
+): AdminActionRequest {
   return {
     section,
     action,
     title: action,
     description: getActionDescription(section, action),
-    fields: getActionFields(section, action),
+    fields: getActionFields(section, action, options),
   };
 }
 
 function getActionDescription(section: AdminSection, action: string) {
   const sectionName = adminNavItems.find((item) => item.id === section)?.label ?? '관리자';
   const descriptions: Record<string, string> = {
+    '새 시즌 생성': '시즌명, 기간, 초기 자금을 입력해 새 시즌을 생성합니다.',
     '시즌 초기화': '시즌 초기화를 실행하면 seed에 정의되지 않은 시장/종목과 모든 거래, 보유 자산, 조건 주문, 관심 종목, 배당 기록, 랭킹, 시나리오, 가격 히스토리가 삭제됩니다. 유저/AI 계정은 유지되지만 자산은 시즌 초기 자금으로 리셋됩니다.',
-    '사용자 초기 자금 설정': '신규/기존 사용자에게 적용할 초기 자금 정책을 변경합니다.',
-    '전체 사용자 초기 자금 지급': '대상 사용자 그룹에 일괄 가상 자금을 지급합니다.',
-    '전체 사용자 자금 리셋': '보유 현금과 미체결 주문을 기준값으로 되돌리는 위험 작업입니다.',
     '새 장/시장 추가': '새로운 팬덤 기반 장을 만들고 노출 순서와 활성 상태를 지정합니다.',
     '장/시장 수정': '기존 장의 이름, 설명, 정렬, 활성 상태를 수정합니다.',
-    '장/시장 비활성화': '특정 장의 신규 거래를 막고 기존 주문 처리 방식을 정합니다.',
-    '장/시장 삭제': '장을 아카이브하거나 다른 장으로 종목을 이관하는 위험 작업입니다.',
+    '장/시장 비활성화': '특정 장을 비활성 상태로 전환합니다.',
+    '장/시장 삭제': '선택한 장을 삭제하는 위험 작업입니다.',
     '새 종목 상장': '초기 가격, 발행량, 배당 여부를 포함해 새 종목을 상장합니다.',
     '종목 수정': '상장 종목의 가격 정책, 변동성, 배당률, 활성 상태를 조정합니다.',
-    '종목 비활성화': '특정 종목의 매수/매도 가능 여부를 제한합니다.',
-    '종목 상장폐지': '최종 정산 방식과 가격을 지정해 종목을 상장폐지합니다.',
+    '종목 비활성화': '특정 종목을 비상장 상태로 전환합니다.',
+    '종목 상장폐지': '선택한 종목을 상장폐지하는 위험 작업입니다.',
     'AI 계정 추가': '랭킹에 참여할 AI 계정과 투자 성향을 생성합니다.',
-    'AI 계정 수정': '기존 AI 계정의 투자 성향, 선호 장, 운용 한도를 조정합니다.',
-    'AI 계정 삭제': 'AI 계정 포트폴리오 정산과 활동 기록 보존 방식을 정합니다.',
-    'AI 투자 성향 리밸런싱': 'AI 계정의 리스크 한도와 선호 장을 다시 배분합니다.',
+    'AI 계정 수정': '기존 AI 계정의 투자 성향, 위험도, 활성 상태를 조정합니다.',
+    'AI 계정 삭제': 'AI 계정을 삭제하는 위험 작업입니다.',
+    'AI 투자 성향 리밸런싱': '선택한 AI 계정의 자동 거래를 실행합니다.',
     '메인 시나리오 생성 요청': '시장 흐름에 영향을 주는 메인 시나리오 생성을 요청합니다.',
-    'BIG 시나리오 생성 요청': '강한 가격 충격을 주는 BIG 시나리오를 생성하고 즉시 적용 여부를 정합니다.',
+    'BIG 시나리오 생성 요청': '강한 가격 충격을 주는 BIG 시나리오 생성을 요청합니다.',
     '소규모 시나리오 생성 요청': '개별 종목 중심의 짧은 시나리오를 생성합니다.',
     '시나리오 적용': '생성된 시나리오를 가격에 반영하고 조건 주문과 AI 자동 거래 결과를 확인합니다.',
-    '시나리오 적용 내역 확인': '기간과 장 기준으로 적용된 시나리오 로그를 조회합니다.',
-    '배당금 정책 설정': '배당률 상승 단계와 지급 대상 정책을 변경합니다.',
-    '배당 지급 스케줄 설정': '사용자가 버튼을 누르지 않아도 지정된 시각에 배당금이 자동 지급되도록 설정합니다.',
-    '다음 지급 시각 변경': '현재 스케줄은 유지하고 다음 1회 지급 예정 시각만 조정합니다.',
+    '배당금 정책 설정': '배당률, 쿨타임, 시즌 제한, 자동 지급 여부를 변경합니다.',
+    '배당 지급 스케줄 설정': '자동 배당 지급 여부와 다음 실행 시각을 설정합니다.',
+    '다음 지급 시각 변경': '다음 1회 지급 예정 시각을 조정합니다.',
     '지급 스케줄 일시정지': '자동 배당 지급을 일시정지하거나 다시 활성화합니다.',
-    '수령 횟수 보정': '특정 사용자/종목의 배당 수령 횟수를 수동 보정합니다.',
-    '회복 계수 초기화': '손실 회복 보조 계수를 기본값으로 되돌립니다.',
     '유저 권한 변경': '사용자 권한과 관리자 접근 가능 여부를 변경합니다.',
-    '유저 거래 제한': '특정 사용자의 거래 제한 범위와 시간을 설정합니다.',
-    '랭킹 초기화': '랭킹 데이터를 초기화하고 시즌 기록 보존 여부를 선택합니다.',
-    '계정 활동 기록 확인': '사용자 활동 로그를 기간과 거래 유형 기준으로 조회합니다.',
+    '유저 거래 제한': '특정 사용자의 계정을 비활성 상태로 전환합니다.',
+    '랭킹 초기화': '랭킹 데이터를 재계산합니다.',
   };
   return descriptions[action] ?? `${sectionName}에서 "${action}" 요청을 보내기 전에 적용 값을 확인합니다.`;
 }
 
-const marketOptions = ['버츄얼 & 스트리머장', '가수장', '캐릭터장', '애니메이션장'];
-const stockOptions = ['노바 린', '픽셀 민트', '루나 콰이어', '블루 아크 마스코트', '오리온 학원', '네온 아이돌즈'];
-const aiOptions = ['ALPHA-팬덤퀀트', 'BETA-안정배당', '전체 AI 계정'];
-const userOptions = ['플레이어01', '마루트레이더', '하루차트', '전체 사용자'];
+const fallbackMarketOptions: AdminSelectOption[] = ['버츄얼 & 스트리머장', '가수장', '캐릭터장', '애니메이션장'];
+const fallbackStockOptions: AdminSelectOption[] = ['노바 린', '픽셀 민트', '루나 콰이어', '블루 아크 마스코트', '오리온 학원', '네온 아이돌즈'];
+const fallbackAiOptions: AdminSelectOption[] = ['ALPHA-팬덤퀀트', 'BETA-안정배당', '전체 AI 계정'];
+const fallbackUserOptions: AdminSelectOption[] = ['플레이어01', '마루트레이더', '하루차트', '전체 사용자'];
+const defaultActionOptions: AdminActionOptions = {
+  marketOptions: fallbackMarketOptions,
+  stockOptions: fallbackStockOptions,
+  aiOptions: fallbackAiOptions,
+  userOptions: fallbackUserOptions,
+};
 
-function getActionFields(section: AdminSection, action: string): AdminActionField[] {
-  const baseFields: AdminActionField[] = [
-    { name: 'executeAt', label: '실행 시점', type: 'select', options: ['즉시 실행', '다음 정산 배치', '예약 실행'] },
-    { name: 'requestReason', label: '요청 사유', type: 'textarea', placeholder: '운영 로그에 남길 사유를 입력하세요.' },
-    { name: 'notifyUsers', label: '관련 사용자에게 알림 발송', type: 'checkbox', defaultValue: 'true' },
+function toSelectOption(option: AdminSelectOption) {
+  return typeof option === 'string' ? { label: option, value: option } : option;
+}
+
+function blankSelectOption(label: string): AdminSelectOption {
+  return { label, value: '' };
+}
+
+function buildMarketOptions(markets: Market[]): AdminSelectOption[] {
+  if (!markets.length) return fallbackMarketOptions;
+  return [...markets]
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'ko-KR'))
+    .map((market) => ({
+      label: `${market.name}${market.active ? '' : ' (비활성)'}`,
+      value: market.id,
+    }));
+}
+
+function buildStockOptions(stocks: Stock[]): AdminSelectOption[] {
+  if (!stocks.length) return fallbackStockOptions;
+  return [...stocks]
+    .sort((a, b) => a.name.localeCompare(b.name, 'ko-KR'))
+    .map((stock) => ({
+      label: `${stock.name}${stock.status && stock.status !== 'LISTED' ? ` (${formatStockStatus(stock.status)})` : ''}`,
+      value: stock.id,
+    }));
+}
+
+function buildAiOptions(entries: RankingEntry[]): AdminSelectOption[] {
+  if (!entries.length) return fallbackAiOptions;
+  return [
+    blankSelectOption('전체 AI 계정'),
+    ...entries.map((entry) => ({
+      label: entry.name,
+      value: entry.id,
+    })),
   ];
-  const withBase = (fields: AdminActionField[]) => [...fields, ...baseFields];
+}
+
+function buildUserOptions(entries: RankingEntry[]): AdminSelectOption[] {
+  const userEntries = entries.filter((entry) => entry.role !== 'ai');
+  if (!userEntries.length) return fallbackUserOptions;
+  return [
+    blankSelectOption('전체 사용자'),
+    ...userEntries.map((entry) => ({
+      label: entry.name,
+      value: entry.id,
+    })),
+  ];
+}
+
+function getActionFields(
+  section: AdminSection,
+  action: string,
+  options: AdminActionOptions = defaultActionOptions,
+): AdminActionField[] {
+  const { marketOptions, stockOptions, aiOptions, userOptions } = options;
 
   if (section === 'season') {
+    if (action === '새 시즌 생성') {
+      return [
+        { name: 'newSeasonName', label: '시즌명', placeholder: '예: 2026 SUMMER' },
+        { name: 'startsAt', label: '시작일', type: 'date' },
+        { name: 'endsAt', label: '종료일', type: 'date' },
+        { name: 'initialCash', label: '초기 자금', type: 'number', placeholder: '10000000' },
+        { name: 'status', label: '시즌 상태', type: 'select', options: ['UPCOMING', 'ACTIVE', 'ENDED'] },
+      ];
+    }
     if (action === '시즌 초기화') {
       return [
         { name: 'seasonId', label: '시즌 ID', placeholder: '초기화할 시즌 ID' },
         { name: 'understandDeletionScope', label: '삭제 범위를 이해했습니다', type: 'checkbox' },
         { name: 'confirmText', label: 'RESET 입력', placeholder: 'RESET' },
-        { name: 'requestReason', label: '초기화 사유', type: 'textarea', placeholder: '운영 로그에 남길 사유를 입력하세요.' },
       ];
     }
-    if (action === '사용자 초기 자금 설정') {
-      return withBase([
-        { name: 'targetGroup', label: '적용 대상', type: 'select', options: ['신규 가입자', '현재 시즌 전체 사용자', '손실 사용자'] },
-        { name: 'initialCash', label: '초기 자금', type: 'number', placeholder: '10000000' },
-        { name: 'applyMode', label: '적용 방식', type: 'select', options: ['기준값 변경', '현재 현금 덮어쓰기', '부족분만 보정'] },
-        { name: 'minCashOnly', label: '현재 현금이 기준보다 낮은 사용자만 적용', type: 'checkbox' },
-      ]);
-    }
-    if (action === '전체 사용자 초기 자금 지급') {
-      return withBase([
-        { name: 'payoutAmount', label: '지급 금액', type: 'number', placeholder: '1000000' },
-        { name: 'targetGroup', label: '지급 대상', type: 'select', options: ['전체 사용자', '일반 사용자만', '손실 사용자만'] },
-        { name: 'idempotencyKey', label: '중복 지급 방지 키', placeholder: 'season3-bonus-001' },
-        { name: 'includeAdmins', label: '관리자 계정 포함', type: 'checkbox' },
-      ]);
-    }
-    return withBase([
-      { name: 'resetCash', label: '리셋 후 현금', type: 'number', placeholder: '10000000' },
-      { name: 'targetGroup', label: '리셋 대상', type: 'select', options: ['전체 사용자', '일반 사용자만', '선택 사용자'] },
-      { name: 'liquidateHoldings', label: '보유 종목도 청산', type: 'checkbox', defaultValue: 'true' },
-      { name: 'cancelOrders', label: '미체결 조건 주문 취소', type: 'checkbox', defaultValue: 'true' },
-      { name: 'confirmText', label: '확인 문구', placeholder: '자금 리셋' },
-    ]);
+    return [];
   }
 
   if (section === 'markets') {
     if (action === '새 장/시장 추가') {
-      return withBase([
+      return [
         { name: 'marketName', label: '장 이름', placeholder: '예: 게임 IP장' },
         { name: 'marketDescription', label: '장 설명', type: 'textarea', placeholder: '장 소개와 가격 변동 기준을 입력하세요.' },
         { name: 'icon', label: '아이콘', type: 'select', options: ['Radio', 'Mic2', 'Sparkles', 'Clapperboard', 'Gamepad2'] },
         { name: 'sortOrder', label: '정렬 순서', type: 'number', placeholder: '5' },
         { name: 'active', label: '생성 즉시 활성화', type: 'checkbox', defaultValue: 'true' },
-      ]);
+      ];
     }
     if (action === '장/시장 수정') {
-      return withBase([
-        { name: 'marketId', label: '장 ID', placeholder: '수정할 장 ID' },
+      return [
         { name: 'targetMarket', label: '수정할 장', type: 'select', options: marketOptions },
         { name: 'marketName', label: '변경 이름', placeholder: '변경하지 않으면 비워두기' },
         { name: 'marketDescription', label: '변경 설명', type: 'textarea', placeholder: '변경할 설명을 입력하세요.' },
         { name: 'sortOrder', label: '정렬 순서', type: 'number', placeholder: '1' },
-        { name: 'activeState', label: '활성 상태', type: 'select', options: ['활성', '비활성', '변경 없음'] },
-      ]);
+        { name: 'activeState', label: '활성 상태', type: 'select', options: ['변경 없음', '활성', '비활성'] },
+      ];
     }
     if (action === '장/시장 비활성화') {
-      return withBase([
-        { name: 'marketId', label: '장 ID', placeholder: '비활성화할 장 ID' },
+      return [
         { name: 'targetMarket', label: '비활성화할 장', type: 'select', options: marketOptions },
-        { name: 'haltMode', label: '거래 제한 방식', type: 'select', options: ['신규 주문 차단', '매수만 차단', '전체 거래 정지'] },
-        { name: 'cancelOpenOrders', label: '미체결 주문 취소', type: 'checkbox', defaultValue: 'true' },
-        { name: 'marketNotice', label: '공지 내용', type: 'textarea', placeholder: '사용자에게 표시할 운영 공지를 입력하세요.' },
-      ]);
+      ];
     }
-    return withBase([
-      { name: 'marketId', label: '장 ID', placeholder: '삭제할 장 ID' },
+    return [
       { name: 'targetMarket', label: '삭제할 장', type: 'select', options: marketOptions },
-      { name: 'migrationMarket', label: '종목 이관 장', type: 'select', options: ['아카이브만 수행', ...marketOptions] },
-      { name: 'archiveSnapshot', label: '삭제 전 스냅샷 저장', type: 'checkbox', defaultValue: 'true' },
       { name: 'confirmText', label: '확인 문구', placeholder: '장 삭제' },
-    ]);
+    ];
   }
 
   if (section === 'stocks') {
     if (action === '새 종목 상장') {
-      return withBase([
+      return [
         { name: 'stockName', label: '종목명', placeholder: '예: 신규 종목' },
-        { name: 'marketId', label: '소속 장 ID', placeholder: '상장할 장 ID' },
         { name: 'market', label: '소속 장', type: 'select', options: marketOptions },
         { name: 'initialPrice', label: '초기 가격', type: 'number', placeholder: '10000' },
         { name: 'totalSupply', label: '초기 발행량', type: 'number', placeholder: '1000000' },
         { name: 'circulatingSupply', label: '초기 유통량', type: 'number', placeholder: '1000000' },
-        { name: 'volatility', label: '변동성 등급', type: 'select', options: ['S', 'A', 'B', 'C'] },
+        { name: 'description', label: '설명', type: 'textarea', placeholder: '종목 설명을 입력하세요.' },
         { name: 'imageUrl', label: '이미지 URL', placeholder: 'https://...' },
+        { name: 'tags', label: '태그', placeholder: '쉼표로 구분' },
+        { name: 'volatility', label: '변동성 등급', type: 'select', options: ['S', 'A', 'B', 'C'] },
         { name: 'dividendEnabled', label: '배당 가능 종목', type: 'checkbox' },
-      ]);
+        { name: 'dividendRate', label: '기본 배당률', type: 'number', placeholder: '0.01' },
+      ];
     }
     if (action === '종목 수정') {
-      return withBase([
-        { name: 'stockId', label: '종목 ID', placeholder: '수정할 종목 ID' },
+      return [
         { name: 'targetStock', label: '수정할 종목', type: 'select', options: stockOptions },
         { name: 'manualPrice', label: '수동 기준가', type: 'number', placeholder: '비워두면 유지' },
         { name: 'volatility', label: '변동성 등급', type: 'select', options: ['변경 없음', 'S', 'A', 'B', 'C'] },
-        { name: 'dividendRate', label: '기본 배당률', type: 'number', placeholder: '1.5' },
-        { name: 'activeState', label: '활성 상태', type: 'select', options: ['활성', '비활성', '변경 없음'] },
-      ]);
+        { name: 'dividendRate', label: '기본 배당률', type: 'number', placeholder: '비워두면 유지' },
+        { name: 'activeState', label: '활성 상태', type: 'select', options: ['변경 없음', '활성', '비활성'] },
+      ];
     }
     if (action === '종목 비활성화') {
-      return withBase([
-        { name: 'stockId', label: '종목 ID', placeholder: '비활성화할 종목 ID' },
+      return [
         { name: 'targetStock', label: '비활성화할 종목', type: 'select', options: stockOptions },
-        { name: 'haltMode', label: '제한 방식', type: 'select', options: ['매수만 차단', '매도만 차단', '전체 거래 정지'] },
-        { name: 'cancelOpenOrders', label: '미체결 주문 취소', type: 'checkbox', defaultValue: 'true' },
-        { name: 'haltReason', label: '비활성화 사유', type: 'textarea', placeholder: '운영상 비활성화 사유를 입력하세요.' },
-      ]);
+      ];
     }
-    return withBase([
-      { name: 'stockId', label: '종목 ID', placeholder: '상장폐지할 종목 ID' },
+    return [
       { name: 'targetStock', label: '상장폐지할 종목', type: 'select', options: stockOptions },
-      { name: 'settlementMethod', label: '정산 방식', type: 'select', options: ['현재가 현금 정산', '평균가 현금 정산', '보상 없이 아카이브'] },
-      { name: 'finalPrice', label: '최종 정산가', type: 'number', placeholder: '비워두면 현재가' },
-      { name: 'archiveHistory', label: '거래/시나리오 기록 보존', type: 'checkbox', defaultValue: 'true' },
       { name: 'confirmText', label: '확인 문구', placeholder: '상장폐지' },
-    ]);
+    ];
   }
 
   if (section === 'ai') {
     if (action === 'AI 계정 추가') {
-      return withBase([
+      return [
         { name: 'aiName', label: 'AI 계정 이름', placeholder: '예: GAMMA-모멘텀' },
         { name: 'initialCash', label: '초기 자금', type: 'number', placeholder: '10000000' },
         { name: 'profile', label: '투자 성향', type: 'select', options: ['공격형', '안정형', '랜덤형', '특정 장 집중형'] },
         { name: 'favoriteMarket', label: '선호 장', type: 'select', options: marketOptions },
+        { name: 'riskLevel', label: '위험도', type: 'number', placeholder: '50', defaultValue: '50' },
         { name: 'active', label: '생성 즉시 랭킹 참여', type: 'checkbox', defaultValue: 'true' },
-      ]);
+      ];
     }
     if (action === 'AI 계정 수정') {
-      return withBase([
-        { name: 'aiAccountId', label: 'AI 계정 ID', placeholder: '수정할 AI 계정 ID' },
+      return [
         { name: 'targetAi', label: '수정할 AI', type: 'select', options: aiOptions },
-        { name: 'profile', label: '투자 성향', type: 'select', options: ['공격형', '안정형', '랜덤형', '특정 장 집중형', '변경 없음'] },
-        { name: 'favoriteMarket', label: '선호 장', type: 'select', options: ['변경 없음', ...marketOptions] },
-        { name: 'cashLimit', label: '1일 운용 한도', type: 'number', placeholder: '3000000' },
-        { name: 'activeState', label: '활성 상태', type: 'select', options: ['활성', '비활성', '변경 없음'] },
-      ]);
+        { name: 'profile', label: '투자 성향', type: 'select', options: ['변경 없음', '공격형', '안정형', '랜덤형', '특정 장 집중형'] },
+        { name: 'riskLevel', label: '위험도', type: 'number', placeholder: '비워두면 유지' },
+        { name: 'activeState', label: '활성 상태', type: 'select', options: ['변경 없음', '활성', '비활성'] },
+      ];
     }
     if (action === 'AI 계정 삭제') {
-      return withBase([
-        { name: 'aiAccountId', label: 'AI 계정 ID', placeholder: '삭제할 AI 계정 ID' },
-        { name: 'targetAi', label: '삭제할 AI', type: 'select', options: aiOptions.filter((option) => option !== '전체 AI 계정') },
-        { name: 'settlementMethod', label: '포트폴리오 처리', type: 'select', options: ['전량 매도 후 삭제', '기록만 아카이브', '보유 종목 유지 후 비활성'] },
-        { name: 'archiveHistory', label: '거래 기록 보존', type: 'checkbox', defaultValue: 'true' },
+      return [
+        { name: 'targetAi', label: '삭제할 AI', type: 'select', options: aiOptions.filter((option) => toSelectOption(option).label !== '전체 AI 계정') },
         { name: 'confirmText', label: '확인 문구', placeholder: 'AI 삭제' },
-      ]);
+      ];
     }
-    return withBase([
-      { name: 'aiAccountId', label: 'AI 계정 ID', placeholder: '거래를 실행할 AI 계정 ID' },
+    return [
       { name: 'targetAi', label: '리밸런싱 대상', type: 'select', options: aiOptions },
-      { name: 'rebalanceMode', label: '리밸런싱 방식', type: 'select', options: ['시장 비중 재조정', '손실 종목 축소', '수익 종목 추세 추종', '랜덤 재분배'] },
-      { name: 'riskLimit', label: '위험 한도', type: 'number', placeholder: '30' },
-      { name: 'targetMarket', label: '집중 장', type: 'select', options: ['자동 선택', ...marketOptions] },
-    ]);
+    ];
   }
 
   if (section === 'scenarios') {
     if (action === '메인 시나리오 생성 요청') {
-      return withBase([
-        { name: 'targetMarket', label: '중심 장', type: 'select', options: ['전체 시장', ...marketOptions] },
-        { name: 'theme', label: '시장 테마', placeholder: '예: 여름 이벤트, 콜라보 발표' },
-        { name: 'direction', label: '시장 방향', type: 'select', options: ['상승', '하락', '혼합'] },
-        { name: 'strength', label: '영향 강도', type: 'number', placeholder: '1~100' },
+      return [
+        { name: 'targetMarket', label: '영향 장', type: 'select', options: [blankSelectOption('전체 시장'), ...marketOptions] },
         { name: 'promptHint', label: '생성 힌트', type: 'textarea', placeholder: 'GPT에 전달할 맥락을 입력하세요.' },
-      ]);
+      ];
     }
     if (action === 'BIG 시나리오 생성 요청') {
-      return withBase([
-        { name: 'impactScope', label: '충격 범위', type: 'select', options: ['시장 전체', '특정 장', '특정 종목'] },
-        { name: 'targetMarket', label: '영향 장', type: 'select', options: ['전체', ...marketOptions] },
-        { name: 'targetStock', label: '핵심 종목', type: 'select', options: ['자동 선택', ...stockOptions] },
-        { name: 'direction', label: '변동 방향', type: 'select', options: ['상승', '하락'] },
-        { name: 'strength', label: '변동 강도', type: 'number', placeholder: '70~100' },
-        { name: 'applyImmediately', label: '생성 즉시 가격에 반영', type: 'checkbox', defaultValue: 'true' },
-      ]);
+      return [
+        { name: 'targetMarket', label: '영향 장', type: 'select', options: [blankSelectOption('전체'), ...marketOptions] },
+        { name: 'targetStock', label: '핵심 종목', type: 'select', options: [blankSelectOption('자동 선택'), ...stockOptions] },
+        { name: 'promptHint', label: '생성 힌트', type: 'textarea', placeholder: 'BIG 시나리오에 사용할 맥락을 입력하세요.' },
+      ];
     }
     if (action === '소규모 시나리오 생성 요청') {
-      return withBase([
+      return [
         { name: 'targetStock', label: '대상 종목', type: 'select', options: stockOptions },
-        { name: 'direction', label: '변동 방향', type: 'select', options: ['상승', '하락', '보합'] },
-        { name: 'strength', label: '변동 강도', type: 'number', placeholder: '1~40' },
-        { name: 'duration', label: '지속 시간', type: 'select', options: ['1시간', '3시간', '6시간', '하루'] },
         { name: 'promptHint', label: '생성 힌트', type: 'textarea', placeholder: '작은 이슈나 커뮤니티 반응을 입력하세요.' },
-      ]);
+      ];
     }
     if (action === '시나리오 적용') {
-      return withBase([
+      return [
         { name: 'scenarioId', label: '시나리오 ID', placeholder: '적용할 시나리오 ID' },
-      ]);
+      ];
     }
-    return withBase([
-      { name: 'scenarioId', label: '시나리오 ID', placeholder: '적용할 시나리오 ID. 비우면 상태 조회' },
-      { name: 'fromDate', label: '조회 시작일', type: 'date' },
-      { name: 'toDate', label: '조회 종료일', type: 'date' },
-      { name: 'targetMarket', label: '조회 장', type: 'select', options: ['전체', ...marketOptions] },
-      { name: 'scenarioType', label: '시나리오 유형', type: 'select', options: ['전체', 'MAIN', 'BIG', 'SMALL'] },
-      { name: 'includePriceImpact', label: '가격 반영 결과 포함', type: 'checkbox', defaultValue: 'true' },
-    ]);
+    return [];
   }
 
   if (section === 'dividends') {
     if (action === '배당금 정책 설정') {
-      return withBase([
+      return [
         { name: 'baseDividendRate', label: '기본 배당률', type: 'number', placeholder: '0.01' },
         { name: 'claimCountMultiplier', label: '수령 횟수별 증가율', type: 'number', placeholder: '0.1' },
         { name: 'claimCooldownMinutes', label: '수령 쿨타임(분)', type: 'number', placeholder: '1440' },
         { name: 'seasonalClaimLimit', label: '시즌 수령 제한', type: 'number', placeholder: '30' },
         { name: 'isEnabled', label: '자동 지급 활성화', type: 'checkbox', defaultValue: 'true' },
-        { name: 'eligiblePolicy', label: '수령 대상', type: 'select', options: ['보유자 전체', '손실 보유자 우선', '배당 가능 종목 보유자'] },
-      ]);
+      ];
     }
     if (action === '배당 지급 스케줄 설정') {
-      return withBase([
-        { name: 'frequency', label: '지급 주기', type: 'select', options: ['매일', '매주', '매월'] },
-        { name: 'payoutTime', label: '지급 시각', placeholder: '12:00' },
+      return [
         { name: 'nextRunAt', label: '다음 자동 지급 ISO 시각', placeholder: '2026-07-09T03:00:00.000Z' },
-        { name: 'timezone', label: '기준 시간대', type: 'select', options: ['UTC', 'Asia/Seoul'] },
-        { name: 'eligiblePolicy', label: '지급 대상', type: 'select', options: ['보유자 전체', '손실 보유자 우선', '배당 가능 종목 보유자'] },
-        { name: 'enabled', label: '스케줄 즉시 활성화', type: 'checkbox', defaultValue: 'true' },
-      ]);
+        { name: 'isEnabled', label: '자동 지급 활성화', type: 'checkbox', defaultValue: 'true' },
+      ];
     }
     if (action === '다음 지급 시각 변경') {
-      return withBase([
-        { name: 'nextPayoutDate', label: '다음 지급일', type: 'date' },
-        { name: 'payoutTime', label: '다음 지급 시각', placeholder: '12:00' },
+      return [
         { name: 'nextRunAt', label: '다음 자동 지급 ISO 시각', placeholder: '2026-07-09T03:00:00.000Z' },
-        { name: 'timezone', label: '기준 시간대', type: 'select', options: ['UTC', 'Asia/Seoul'] },
-        { name: 'keepRecurringSchedule', label: '반복 스케줄은 유지', type: 'checkbox', defaultValue: 'true' },
-      ]);
+      ];
     }
     if (action === '지급 스케줄 일시정지') {
-      return withBase([
+      return [
         { name: 'scheduleStatus', label: '변경 상태', type: 'select', options: ['일시정지', '활성화'] },
-        { name: 'pauseReason', label: '상태 변경 사유', type: 'textarea', placeholder: '자동 지급을 중단하거나 재개하는 사유를 입력하세요.' },
-      ]);
+      ];
     }
-    if (action === '수령 횟수 보정') {
-      return withBase([
-        { name: 'targetUser', label: '대상 유저', type: 'select', options: userOptions },
-        { name: 'targetStock', label: '대상 종목', type: 'select', options: ['전체 배당 종목', ...stockOptions] },
-        { name: 'adjustment', label: '보정 횟수', type: 'number', placeholder: '1' },
-        { name: 'adjustmentMode', label: '보정 방식', type: 'select', options: ['증가', '감소', '지정값으로 변경'] },
-      ]);
-    }
-    return withBase([
-      { name: 'resetScope', label: '초기화 범위', type: 'select', options: ['전체 사용자', '손실 사용자', '선택 사용자'] },
-      { name: 'resetValue', label: '초기화 값', type: 'number', placeholder: '1.0' },
-      { name: 'preserveClaimCount', label: '수령 횟수는 보존', type: 'checkbox', defaultValue: 'true' },
-      { name: 'confirmText', label: '확인 문구', placeholder: '회복 계수 초기화' },
-    ]);
+    return [];
   }
 
   if (section === 'users') {
     if (action === '유저 권한 변경') {
-      return withBase([
-        { name: 'userId', label: '유저 ID', placeholder: '권한을 변경할 유저 ID' },
-        { name: 'targetUser', label: '대상 유저', type: 'select', options: userOptions.filter((option) => option !== '전체 사용자') },
-        { name: 'role', label: '변경 권한', type: 'select', options: ['일반 사용자', '관리자', '거래 제한 계정'] },
-        { name: 'expireAt', label: '권한 만료일', type: 'date' },
-        { name: 'requireRelogin', label: '재로그인 요구', type: 'checkbox', defaultValue: 'true' },
-      ]);
+      return [
+        { name: 'targetUser', label: '대상 유저', type: 'select', options: userOptions.filter((option) => toSelectOption(option).label !== '전체 사용자') },
+        { name: 'role', label: '변경 권한', type: 'select', options: ['일반 사용자', '관리자'] },
+      ];
     }
     if (action === '유저 거래 제한') {
-      return withBase([
-        { name: 'userId', label: '유저 ID', placeholder: '거래 제한할 유저 ID' },
-        { name: 'targetUser', label: '대상 유저', type: 'select', options: userOptions.filter((option) => option !== '전체 사용자') },
-        { name: 'restriction', label: '제한 범위', type: 'select', options: ['매수 제한', '매도 제한', '전체 거래 제한', '조건 주문 제한'] },
-        { name: 'durationHours', label: '제한 시간', type: 'number', placeholder: '24' },
-        { name: 'restrictionReason', label: '제한 사유', type: 'textarea', placeholder: '제한 사유와 해제 조건을 입력하세요.' },
-      ]);
+      return [
+        { name: 'targetUser', label: '대상 유저', type: 'select', options: userOptions.filter((option) => toSelectOption(option).label !== '전체 사용자') },
+      ];
     }
     if (action === '랭킹 초기화') {
-      return withBase([
-        { name: 'rankingScope', label: '초기화 범위', type: 'select', options: ['전체 랭킹', '사용자 랭킹', 'AI 랭킹', '시즌별 랭킹'] },
-        { name: 'preserveHistory', label: '시즌 히스토리 보존', type: 'checkbox', defaultValue: 'true' },
-        { name: 'resetBadges', label: '최고 순위 기록도 초기화', type: 'checkbox' },
+      return [
         { name: 'confirmText', label: '확인 문구', placeholder: '랭킹 초기화' },
-      ]);
+      ];
     }
-    return withBase([
-      { name: 'targetUser', label: '대상 유저', type: 'select', options: userOptions },
-      { name: 'fromDate', label: '조회 시작일', type: 'date' },
-      { name: 'toDate', label: '조회 종료일', type: 'date' },
-      { name: 'activityType', label: '활동 유형', type: 'select', options: ['전체', '거래', '배당', '로그인', '관리자 조치'] },
-      { name: 'includeRawLog', label: '원본 로그 포함', type: 'checkbox' },
-    ]);
+    return [];
   }
 
-  return baseFields;
+  return [];
 }
 
 const tooltipStyle = {

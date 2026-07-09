@@ -147,7 +147,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
       });
     }
     if (action === '장/시장 수정') {
-      return adminApi.updateMarket(requiredId(values.marketId ?? values.targetMarket, '수정할 장 ID'), {
+      return adminApi.updateMarket(requiredId(firstFilled(values.marketId, values.targetMarket), '수정할 장 ID'), {
         name: optionalString(values.marketName),
         description: optionalString(values.marketDescription),
         sortOrder: optionalNumber(values.sortOrder),
@@ -156,10 +156,10 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
     }
     if (action === '장/시장 삭제') {
       requireConfirm(values.confirmText, '장 삭제');
-      return adminApi.deleteMarket(requiredId(values.marketId ?? values.targetMarket, '삭제할 장 ID'));
+      return adminApi.deleteMarket(requiredId(firstFilled(values.marketId, values.targetMarket), '삭제할 장 ID'));
     }
     if (action === '장/시장 비활성화') {
-      return adminApi.updateMarket(requiredId(values.marketId ?? values.targetMarket, '비활성화할 장 ID'), {
+      return adminApi.updateMarket(requiredId(firstFilled(values.marketId, values.targetMarket), '비활성화할 장 ID'), {
         isActive: false,
       });
     }
@@ -168,7 +168,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
   if (section === 'stocks') {
     if (action === '새 종목 상장') {
       return adminApi.createStock({
-        marketId: requiredId(values.marketId ?? values.market, '소속 장 ID'),
+        marketId: requiredId(firstFilled(values.marketId, values.market), '소속 장 ID'),
         name: String(values.stockName || ''),
         description: optionalString(values.description),
         imageUrl: optionalString(values.imageUrl),
@@ -183,21 +183,21 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
       });
     }
     if (action === '종목 수정') {
-      return adminApi.updateStock(requiredId(values.stockId ?? values.targetStock, '수정할 종목 ID'), {
+      return adminApi.updateStock(requiredId(firstFilled(values.stockId, values.targetStock), '수정할 종목 ID'), {
         initialPrice: optionalNumber(values.manualPrice),
-        volatilityLevel: optionalString(values.volatility),
+        volatilityLevel: optionalSetting(values.volatility),
         baseDividendRate: optionalNumber(values.dividendRate),
         isListed: parseActiveState(values.activeState),
       });
     }
     if (action === '종목 비활성화') {
-      return adminApi.updateStockListingStatus(requiredId(values.stockId ?? values.targetStock, '비활성화할 종목 ID'), {
+      return adminApi.updateStockListingStatus(requiredId(firstFilled(values.stockId, values.targetStock), '비활성화할 종목 ID'), {
         isListed: false,
       });
     }
     if (action === '종목 상장폐지') {
       requireConfirm(values.confirmText, '상장폐지');
-      return adminApi.updateStockListingStatus(requiredId(values.stockId ?? values.targetStock, '상장폐지할 종목 ID'), {
+      return adminApi.updateStockListingStatus(requiredId(firstFilled(values.stockId, values.targetStock), '상장폐지할 종목 ID'), {
         isListed: false,
       });
     }
@@ -208,7 +208,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
       return adminApi.createAiAccount({
         nickname: String(values.aiName || ''),
         strategyType: parseStrategy(values.profile),
-        preferredMarketIds: optionalString(values.preferredMarketIds ?? values.favoriteMarket)
+        preferredMarketIds: firstFilled(values.preferredMarketIds, values.favoriteMarket)
           ?.split(',')
           .map((id) => id.trim())
           .filter(Boolean),
@@ -218,15 +218,15 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
       });
     }
     if (action === 'AI 투자 성향 리밸런싱') {
-      return adminApi.runAiTrade(requiredId(values.aiAccountId ?? values.targetAi, 'AI 계정 ID'));
+      return adminApi.runAiTrade(requiredId(firstFilled(values.aiAccountId, values.targetAi), 'AI 계정 ID'));
     }
     if (action === 'AI 계정 삭제') {
       requireConfirm(values.confirmText, 'AI 삭제');
-      return adminApi.deleteAiAccount(requiredId(values.aiAccountId ?? values.targetAi, '삭제할 AI 계정 ID'));
+      return adminApi.deleteAiAccount(requiredId(firstFilled(values.aiAccountId, values.targetAi), '삭제할 AI 계정 ID'));
     }
     if (action === 'AI 계정 수정') {
-      return adminApi.updateAiAccount(requiredId(values.aiAccountId ?? values.targetAi, '수정할 AI 계정 ID'), {
-        strategyType: parseStrategy(values.profile),
+      return adminApi.updateAiAccount(requiredId(firstFilled(values.aiAccountId, values.targetAi), '수정할 AI 계정 ID'), {
+        strategyType: parseOptionalStrategy(values.profile),
         riskLevel: optionalNumber(values.riskLevel ?? values.cashLimit),
         isActive: parseActiveState(values.activeState),
       });
@@ -239,10 +239,6 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
     if (action === 'BIG 시나리오 생성 요청') return adminApi.generateBigScenario(body);
     if (action === '소규모 시나리오 생성 요청') return adminApi.generateSmallScenario(body);
     if (action === '시나리오 적용') return adminApi.applyScenario(requiredId(values.scenarioId, '적용할 시나리오 ID'));
-    if (action === '시나리오 적용 내역 확인') {
-      if (values.scenarioId) return adminApi.applyScenario(String(values.scenarioId));
-      return adminApi.getOpenAiStatus();
-    }
   }
 
   if (section === 'dividends') {
@@ -258,15 +254,18 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
   }
 
   if (section === 'users') {
-    if (action === '랭킹 초기화') return adminApi.recalculateRankings();
+    if (action === '랭킹 초기화') {
+      requireConfirm(values.confirmText, '랭킹 초기화');
+      return adminApi.recalculateRankings();
+    }
     if (action === '유저 권한 변경') {
-      return adminApi.updateUser(requiredId(values.userId ?? values.targetUser, '대상 유저 ID'), {
+      return adminApi.updateUser(requiredId(firstFilled(values.userId, values.targetUser), '대상 유저 ID'), {
         role: parseRole(values.role),
         isActive: true,
       });
     }
     if (action === '유저 거래 제한') {
-      return adminApi.updateUser(requiredId(values.userId ?? values.targetUser, '대상 유저 ID'), {
+      return adminApi.updateUser(requiredId(firstFilled(values.userId, values.targetUser), '대상 유저 ID'), {
         isActive: false,
       });
     }
@@ -278,13 +277,13 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
       requireSeasonResetConfirm(values);
       return adminApi.resetSeason(requiredId(values.seasonId, '시즌 ID'));
     }
-    if (values.newSeasonName || values.startsAt || values.endsAt) {
+    if (action === '새 시즌 생성' || values.newSeasonName || values.startsAt || values.endsAt) {
       return adminApi.createSeason({
         name: String(values.newSeasonName || values.seasonName || ''),
         startsAt: String(values.startsAt || new Date().toISOString()),
         endsAt: String(values.endsAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()),
         initialCash: toNumber(values.initialCash, 1_000_000),
-        status: 'UPCOMING',
+        status: parseSeasonStatus(values.status),
       });
     }
   }
@@ -295,11 +294,11 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
 function buildScenarioBody(values: Record<string, string | boolean>): ScenarioGeneratePayload {
   return {
     prompt: optionalString(values.prompt ?? values.promptHint ?? values.theme),
-    affectedMarketIds: optionalString(values.affectedMarketIds ?? values.targetMarket)
+    affectedMarketIds: firstFilled(values.affectedMarketIds, values.targetMarket)
       ?.split(',')
       .map((id) => id.trim())
       .filter(Boolean),
-    affectedStockIds: optionalString(values.affectedStockIds ?? values.targetStock)
+    affectedStockIds: firstFilled(values.affectedStockIds, values.targetStock)
       ?.split(',')
       .map((id) => id.trim())
       .filter(Boolean),
@@ -311,7 +310,22 @@ function optionalString(value: unknown) {
   return text || undefined;
 }
 
+function optionalSetting(value: unknown) {
+  const text = optionalString(value);
+  if (!text || text === '변경 없음') return undefined;
+  return text;
+}
+
+function firstFilled(...values: unknown[]) {
+  for (const value of values) {
+    const text = optionalString(value);
+    if (text) return text;
+  }
+  return undefined;
+}
+
 function optionalNumber(value: unknown) {
+  if (!optionalString(value)) return undefined;
   const parsed = toNumber(value, Number.NaN);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
@@ -349,6 +363,17 @@ function parseStrategy(value: unknown): AdminAiPayload['strategyType'] {
   if (text.includes('안정')) return 'STABLE';
   if (text.includes('집중')) return 'MARKET_FOCUSED';
   return 'RANDOM';
+}
+
+function parseOptionalStrategy(value: unknown) {
+  const text = optionalSetting(value);
+  return text ? parseStrategy(text) : undefined;
+}
+
+function parseSeasonStatus(value: unknown): AdminSeasonPayload['status'] {
+  const text = String(value ?? '');
+  if (text === 'ACTIVE' || text === 'ENDED' || text === 'UPCOMING') return text;
+  return 'UPCOMING';
 }
 
 function parseRole(value: unknown) {

@@ -1,7 +1,25 @@
 import type { AdminSection } from '../types/admin';
-import type { AdminDashboard, Market, ScenarioApplyResult, SeasonResetResult, Stock } from '../types';
+import type {
+  AdminDashboard,
+  Market,
+  MarketSimulationRunResult,
+  MarketSimulationSettings,
+  ScenarioApplyResult,
+  SeasonResetResult,
+  Stock,
+} from '../types';
 import { apiClient, jsonBody, withQuery } from './apiClient';
-import { mapAdminDashboard, mapDividendSchedule, mapMarket, mapScenarioApplyResult, mapSeasonResetResult, mapStock, toNumber } from './mappers';
+import {
+  mapAdminDashboard,
+  mapDividendSchedule,
+  mapMarket,
+  mapMarketSimulationRunResult,
+  mapMarketSimulationSettings,
+  mapScenarioApplyResult,
+  mapSeasonResetResult,
+  mapStock,
+  toNumber,
+} from './mappers';
 
 export interface AdminActionPayload {
   section: AdminSection;
@@ -56,12 +74,32 @@ export interface AdminSeasonPayload {
   status?: 'ACTIVE' | 'ENDED' | 'UPCOMING';
 }
 
+export interface AdminMarketSimulationPayload {
+  isEnabled?: boolean;
+  intervalMinutes?: number;
+  minChangeRate?: number;
+  maxChangeRate?: number;
+  extremeMinRate?: number;
+  extremeMaxRate?: number;
+  extremeChance?: number;
+  volatilityWeight?: number;
+  targetStockCount?: number | null;
+  nextRunAt?: string | null;
+}
+
 export const adminApi = {
   getDashboard: async (): Promise<AdminDashboard> => mapAdminDashboard(await apiClient<unknown>('/admin/dashboard')),
   getUsers: (role?: string) => apiClient<unknown>(withQuery('/admin/users', { role })),
   updateUser: (id: string, body: Record<string, unknown>) =>
     apiClient<unknown>(`/admin/users/${id}`, { method: 'PATCH', body: jsonBody(body) }),
   recalculateRankings: () => apiClient<unknown>('/admin/rankings/recalculate', { method: 'POST' }),
+
+  getMarketSimulationSettings: async (): Promise<MarketSimulationSettings> =>
+    mapMarketSimulationSettings(await apiClient<unknown>('/admin/market-simulation/settings')),
+  updateMarketSimulationSettings: async (body: AdminMarketSimulationPayload): Promise<MarketSimulationSettings> =>
+    mapMarketSimulationSettings(await apiClient<unknown>('/admin/market-simulation/settings', { method: 'PATCH', body: jsonBody(body) })),
+  runMarketSimulation: async (): Promise<MarketSimulationRunResult> =>
+    mapMarketSimulationRunResult(await apiClient<unknown>('/admin/market-simulation/run', { method: 'POST' })),
 
   getMarkets: async (params: { includeInactive?: boolean } = {}): Promise<Market[]> =>
     (await apiClient<unknown[]>(withQuery('/admin/markets', { ...params }))).map((market, index) => mapMarket(market, [], index)),
@@ -147,7 +185,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
       });
     }
     if (action === '장/시장 수정') {
-      return adminApi.updateMarket(requiredId(firstFilled(values.marketId, values.targetMarket), '수정할 장 ID'), {
+      return adminApi.updateMarket(requiredId(firstFilled(values.marketId, values.targetMarket), '수정할 장'), {
         name: optionalString(values.marketName),
         description: optionalString(values.marketDescription),
         sortOrder: optionalNumber(values.sortOrder),
@@ -156,10 +194,10 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
     }
     if (action === '장/시장 삭제') {
       requireConfirm(values.confirmText, '장 삭제');
-      return adminApi.deleteMarket(requiredId(firstFilled(values.marketId, values.targetMarket), '삭제할 장 ID'));
+      return adminApi.deleteMarket(requiredId(firstFilled(values.marketId, values.targetMarket), '삭제할 장'));
     }
     if (action === '장/시장 비활성화') {
-      return adminApi.updateMarket(requiredId(firstFilled(values.marketId, values.targetMarket), '비활성화할 장 ID'), {
+      return adminApi.updateMarket(requiredId(firstFilled(values.marketId, values.targetMarket), '비활성화할 장'), {
         isActive: false,
       });
     }
@@ -168,7 +206,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
   if (section === 'stocks') {
     if (action === '새 종목 상장') {
       return adminApi.createStock({
-        marketId: requiredId(firstFilled(values.marketId, values.market), '소속 장 ID'),
+        marketId: requiredId(firstFilled(values.marketId, values.market), '소속 장'),
         name: String(values.stockName || ''),
         description: optionalString(values.description),
         imageUrl: optionalString(values.imageUrl),
@@ -183,7 +221,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
       });
     }
     if (action === '종목 수정') {
-      return adminApi.updateStock(requiredId(firstFilled(values.stockId, values.targetStock), '수정할 종목 ID'), {
+      return adminApi.updateStock(requiredId(firstFilled(values.stockId, values.targetStock), '수정할 종목'), {
         initialPrice: optionalNumber(values.manualPrice),
         volatilityLevel: optionalSetting(values.volatility),
         baseDividendRate: optionalNumber(values.dividendRate),
@@ -191,13 +229,13 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
       });
     }
     if (action === '종목 비활성화') {
-      return adminApi.updateStockListingStatus(requiredId(firstFilled(values.stockId, values.targetStock), '비활성화할 종목 ID'), {
+      return adminApi.updateStockListingStatus(requiredId(firstFilled(values.stockId, values.targetStock), '비활성화할 종목'), {
         isListed: false,
       });
     }
     if (action === '종목 상장폐지') {
       requireConfirm(values.confirmText, '상장폐지');
-      return adminApi.updateStockListingStatus(requiredId(firstFilled(values.stockId, values.targetStock), '상장폐지할 종목 ID'), {
+      return adminApi.updateStockListingStatus(requiredId(firstFilled(values.stockId, values.targetStock), '상장폐지할 종목'), {
         isListed: false,
       });
     }
@@ -218,14 +256,14 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
       });
     }
     if (action === 'AI 투자 성향 리밸런싱') {
-      return adminApi.runAiTrade(requiredId(firstFilled(values.aiAccountId, values.targetAi), 'AI 계정 ID'));
+      return adminApi.runAiTrade(requiredId(firstFilled(values.aiAccountId, values.targetAi), 'AI 계정'));
     }
     if (action === 'AI 계정 삭제') {
       requireConfirm(values.confirmText, 'AI 삭제');
-      return adminApi.deleteAiAccount(requiredId(firstFilled(values.aiAccountId, values.targetAi), '삭제할 AI 계정 ID'));
+      return adminApi.deleteAiAccount(requiredId(firstFilled(values.aiAccountId, values.targetAi), '삭제할 AI 계정'));
     }
     if (action === 'AI 계정 수정') {
-      return adminApi.updateAiAccount(requiredId(firstFilled(values.aiAccountId, values.targetAi), '수정할 AI 계정 ID'), {
+      return adminApi.updateAiAccount(requiredId(firstFilled(values.aiAccountId, values.targetAi), '수정할 AI 계정'), {
         strategyType: parseOptionalStrategy(values.profile),
         riskLevel: optionalNumber(values.riskLevel ?? values.cashLimit),
         isActive: parseActiveState(values.activeState),
@@ -238,7 +276,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
     if (action === '메인 시나리오 생성 요청') return adminApi.generateMainScenario(body);
     if (action === 'BIG 시나리오 생성 요청') return adminApi.generateBigScenario(body);
     if (action === '소규모 시나리오 생성 요청') return adminApi.generateSmallScenario(body);
-    if (action === '시나리오 적용') return adminApi.applyScenario(requiredId(values.scenarioId, '적용할 시나리오 ID'));
+    if (action === '시나리오 적용') return adminApi.applyScenario(requiredId(values.scenarioId, '적용할 시나리오'));
   }
 
   if (section === 'dividends') {
@@ -259,13 +297,13 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
       return adminApi.recalculateRankings();
     }
     if (action === '유저 권한 변경') {
-      return adminApi.updateUser(requiredId(firstFilled(values.userId, values.targetUser), '대상 유저 ID'), {
+      return adminApi.updateUser(requiredId(firstFilled(values.userId, values.targetUser), '대상 유저'), {
         role: parseRole(values.role),
         isActive: true,
       });
     }
     if (action === '유저 거래 제한') {
-      return adminApi.updateUser(requiredId(firstFilled(values.userId, values.targetUser), '대상 유저 ID'), {
+      return adminApi.updateUser(requiredId(firstFilled(values.userId, values.targetUser), '대상 유저'), {
         isActive: false,
       });
     }

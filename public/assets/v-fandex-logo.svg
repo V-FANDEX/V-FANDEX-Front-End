@@ -1,0 +1,34 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">V-FANDEX logo</title>
+  <desc id="desc">A luminous V shaped market emblem for V-FANDEX.</desc>
+  <defs>
+    <linearGradient id="markGradient" x1="19" y1="17" x2="111" y2="113" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38D5FF"/>
+      <stop offset="0.48" stop-color="#2878FF"/>
+      <stop offset="1" stop-color="#7C5CFF"/>
+    </linearGradient>
+    <linearGradient id="edgeGradient" x1="28" y1="20" x2="104" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EAFBFF"/>
+      <stop offset="0.55" stop-color="#82F1FF"/>
+      <stop offset="1" stop-color="#BBA8FF"/>
+    </linearGradient>
+    <filter id="glow" x="-18" y="-18" width="164" height="164" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+      <feGaussianBlur stdDeviation="5" result="effect1_foregroundBlur_1_1"/>
+    </filter>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="#07111F"/>
+  <path d="M18 45C18 30.0883 30.0883 18 45 18H83C97.9117 18 110 30.0883 110 45V83C110 97.9117 97.9117 110 83 110H45C30.0883 110 18 97.9117 18 83V45Z" fill="url(#markGradient)" opacity="0.24"/>
+  <path d="M23 65.5C35.3 51.2 48.7333 44.4667 63.3 45.3C75.5 46 86.7 52.1 100 63.4" stroke="#38D5FF" stroke-width="4" stroke-linecap="round" opacity="0.55"/>
+  <path d="M27 79.5C43.7 65 58.4667 58.7667 71.3 60.8C80.1667 62.2 88.7333 66.7667 97 74.5" stroke="#42E3A3" stroke-width="3" stroke-linecap="round" opacity="0.65"/>
+  <g filter="url(#glow)" opacity="0.75">
+    <path d="M37 30L61.5 94H74.8L98 30H80.4L68.4 70.1L55.7 30H37Z" fill="#38D5FF"/>
+  </g>
+  <path d="M37 30L61.5 94H74.8L98 30H80.4L68.4 70.1L55.7 30H37Z" fill="url(#edgeGradient)"/>
+  <path d="M48 30L67.6 81.2L86 30" stroke="#07111F" stroke-width="4.5" stroke-linecap="round" opacity="0.28"/>
+  <path d="M36 98H96" stroke="#EAFBFF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M42 108H86" stroke="#38D5FF" stroke-width="3" stroke-linecap="round" opacity="0.75"/>
+  <circle cx="36" cy="98" r="5" fill="#42E3A3"/>
+  <circle cx="96" cy="98" r="5" fill="#7C5CFF"/>
+</svg>

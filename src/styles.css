@@ -165,6 +165,58 @@ button {
   }
 }
 
+@keyframes bootSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bootCounterSpin {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes bootFloat {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    transform: translateY(-8px) scale(1.025);
+  }
+}
+
+@keyframes bootSweep {
+  0% {
+    opacity: 0.18;
+    transform: rotate(0deg) scale(0.92);
+  }
+
+  50% {
+    opacity: 0.42;
+  }
+
+  100% {
+    opacity: 0.18;
+    transform: rotate(360deg) scale(0.92);
+  }
+}
+
+@keyframes bootBar {
+  0%,
+  100% {
+    height: 14px;
+    opacity: 0.42;
+  }
+
+  45% {
+    height: 36px;
+    opacity: 1;
+  }
+}
+
 h1,
 h2,
 h3,
@@ -190,7 +242,12 @@ svg {
   .pop-bounce,
   .click-pop-effect,
   .click-pop-effect::before,
-  .click-pop-effect i {
+  .click-pop-effect i,
+  .boot-logo,
+  .boot-ring,
+  .boot-sweep,
+  .boot-tick,
+  .boot-bars i {
     animation: none;
   }
 }
@@ -203,10 +260,173 @@ button:disabled {
 .boot {
   min-height: 100vh;
   display: grid;
+  justify-items: center;
   place-content: center;
-  gap: 16px;
+  gap: 22px;
+  padding: 36px 18px;
+  position: relative;
+  overflow: hidden;
   text-align: center;
+  color: var(--text);
+  background:
+    linear-gradient(180deg, rgba(40, 120, 255, 0.2), rgba(7, 11, 18, 0) 44%),
+    linear-gradient(135deg, rgba(56, 213, 255, 0.08), rgba(124, 92, 255, 0.09) 48%, rgba(66, 227, 163, 0.06)),
+    #070b12;
+}
+
+.boot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 46px 46px;
+  opacity: 0.38;
+}
+
+.boot::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 34%;
+  background:
+    linear-gradient(180deg, transparent, rgba(7, 11, 18, 0.94)),
+    repeating-linear-gradient(90deg, rgba(56, 213, 255, 0.18) 0 1px, transparent 1px 92px);
+  opacity: 0.62;
+}
+
+.boot-stage,
+.boot-copy,
+.boot-bars {
+  position: relative;
+  z-index: 1;
+}
+
+.boot-stage {
+  width: min(190px, 58vw);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+
+.boot-logo {
+  width: 98px;
+  height: 98px;
+  object-fit: contain;
+  filter: drop-shadow(0 18px 38px rgba(56, 213, 255, 0.24));
+  animation: bootFloat 2.6s ease-in-out infinite;
+}
+
+.boot-ring {
+  position: absolute;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.boot-ring.outer {
+  inset: 5px;
+  border-top-color: rgba(56, 213, 255, 0.86);
+  border-right-color: rgba(124, 92, 255, 0.62);
+  box-shadow: inset 0 0 30px rgba(56, 213, 255, 0.08);
+  animation: bootSpin 6.5s linear infinite;
+}
+
+.boot-ring.inner {
+  inset: 30px;
+  border-bottom-color: rgba(66, 227, 163, 0.82);
+  border-left-color: rgba(56, 213, 255, 0.48);
+  animation: bootCounterSpin 4.8s linear infinite;
+}
+
+.boot-sweep {
+  position: absolute;
+  inset: 18px;
+  border-radius: 999px;
+  background: conic-gradient(from 130deg, transparent 0 58%, rgba(56, 213, 255, 0.3), rgba(124, 92, 255, 0.08), transparent 78%);
+  animation: bootSweep 5.2s linear infinite;
+}
+
+.boot-tick {
+  position: absolute;
+  width: 28px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--cyan));
+  box-shadow: 0 0 18px rgba(56, 213, 255, 0.32);
+}
+
+.boot-tick.tick-a {
+  top: 23px;
+  right: 34px;
+  transform: rotate(22deg);
+  animation: bootFloat 2.8s ease-in-out infinite;
+}
+
+.boot-tick.tick-b {
+  left: 20px;
+  bottom: 48px;
+  background: linear-gradient(90deg, var(--green), transparent);
+  transform: rotate(-18deg);
+  animation: bootFloat 3.1s ease-in-out 180ms infinite;
+}
+
+.boot-tick.tick-c {
+  right: 19px;
+  bottom: 35px;
+  background: linear-gradient(90deg, transparent, var(--purple));
+  transform: rotate(-38deg);
+  animation: bootFloat 3.4s ease-in-out 320ms infinite;
+}
+
+.boot-copy {
+  max-width: 420px;
+}
+
+.boot-copy h1 {
+  margin: 6px 0 4px;
+  font-size: 34px;
+  line-height: 1.05;
+}
+
+.boot-copy p {
+  margin: 0;
   color: var(--muted);
+}
+
+.boot-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  height: 40px;
+}
+
+.boot-bars i {
+  width: 9px;
+  height: 16px;
+  border-radius: 999px 999px 3px 3px;
+  background: linear-gradient(180deg, var(--cyan), var(--blue));
+  box-shadow: 0 0 16px rgba(56, 213, 255, 0.32);
+  animation: bootBar 1.1s ease-in-out infinite;
+}
+
+.boot-bars i:nth-child(2) {
+  background: linear-gradient(180deg, var(--purple), var(--blue));
+  animation-delay: 120ms;
+}
+
+.boot-bars i:nth-child(3) {
+  background: linear-gradient(180deg, var(--green), var(--cyan));
+  animation-delay: 240ms;
+}
+
+.boot-bars i:nth-child(4) {
+  animation-delay: 360ms;
+}
+
+.boot-bars i:nth-child(5) {
+  background: linear-gradient(180deg, var(--purple), var(--cyan));
+  animation-delay: 480ms;
 }
 
 .app-shell {
@@ -232,6 +452,14 @@ button:disabled {
   gap: 12px;
   align-items: center;
   min-width: 190px;
+}
+
+.brand-emblem {
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 12px 24px rgba(56, 213, 255, 0.18));
 }
 
 .brand-mark {
@@ -2676,6 +2904,156 @@ textarea {
   justify-self: end;
 }
 
+.simulation-grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 1.12fr) minmax(320px, 0.88fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.simulation-control-panel,
+.simulation-status-panel {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.simulation-toggle {
+  position: relative;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(56, 213, 255, 0.06), rgba(124, 92, 255, 0.07)),
+    rgba(255, 255, 255, 0.035);
+}
+
+.simulation-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.simulation-toggle-track {
+  position: relative;
+  width: 54px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 5px rgba(0, 0, 0, 0.24);
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.simulation-toggle-track i {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--muted);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.9, 0.25, 1.2),
+    background-color 180ms ease;
+}
+
+.simulation-toggle.active .simulation-toggle-track {
+  border-color: rgba(56, 213, 255, 0.5);
+  background: rgba(56, 213, 255, 0.18);
+  box-shadow: 0 0 0 3px rgba(56, 213, 255, 0.08);
+}
+
+.simulation-toggle.active .simulation-toggle-track i {
+  transform: translateX(24px);
+  background: var(--cyan);
+}
+
+.simulation-toggle strong,
+.simulation-toggle small {
+  display: block;
+  min-width: 0;
+}
+
+.simulation-toggle small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.simulation-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.simulation-field.wide {
+  grid-column: 1 / -1;
+}
+
+.simulation-slider-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  gap: 12px;
+  align-items: center;
+}
+
+.simulation-slider-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+
+.simulation-slider-row input[type="number"] {
+  text-align: center;
+  font-weight: 800;
+}
+
+.simulation-note {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--muted);
+  border: 1px solid rgba(56, 213, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(56, 213, 255, 0.055);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.simulation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.simulation-result-row {
+  grid-template-columns: minmax(160px, 1fr) minmax(170px, auto) minmax(76px, auto) minmax(84px, auto);
+}
+
+.simulation-mode-pill {
+  justify-self: start;
+  padding: 5px 9px;
+  color: var(--cyan);
+  border: 1px solid rgba(56, 213, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(56, 213, 255, 0.1);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.simulation-mode-pill.extreme {
+  color: #ffd7de;
+  border-color: rgba(255, 100, 124, 0.34);
+  background: rgba(255, 100, 124, 0.12);
+}
+
 .admin-table-panel {
   overflow: hidden;
 }
@@ -2843,7 +3221,8 @@ textarea {
   }
 
   .admin-dashboard-grid,
-  .admin-work-grid {
+  .admin-work-grid,
+  .simulation-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2889,6 +3268,15 @@ textarea {
 
   .topbar {
     padding-inline: 12px;
+  }
+
+  .logo {
+    min-width: 136px;
+  }
+
+  .brand-emblem {
+    width: 40px;
+    height: 40px;
   }
 
   .logo small {
@@ -2949,6 +3337,19 @@ textarea {
 
   .stock-chart-kpis {
     grid-template-columns: 1fr;
+  }
+
+  .simulation-form-grid,
+  .simulation-slider-row {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-actions {
+    justify-content: stretch;
+  }
+
+  .simulation-actions button {
+    flex: 1 1 160px;
   }
 
   .stock-chart-box {
@@ -3151,6 +3552,10 @@ textarea {
   .admin-request-fields,
   .scenario-result-grid {
     grid-template-columns: 1fr;
+  }
+
+  .simulation-result-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .admin-sidebar-nav {

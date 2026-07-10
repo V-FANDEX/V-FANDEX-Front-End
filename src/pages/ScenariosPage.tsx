@@ -1,9 +1,10 @@
 import { Newspaper } from 'lucide-react';
 import { ScenarioCard } from '../components/Cards';
 import { useFandexStore } from '../store/useFandexStore';
+import { getScenarioTargetLabels } from '../utils/scenarioLabels';
 
 export function ScenariosPage() {
-  const { scenarios, stocks } = useFandexStore();
+  const { scenarios, stocks, markets } = useFandexStore();
 
   return (
     <div className="page">
@@ -17,7 +18,7 @@ export function ScenariosPage() {
           <ScenarioCard
             key={scenario.id}
             scenario={scenario}
-            stockNames={scenario.affectedStockIds.map((id) => stocks.find((stock) => stock.id === id)?.name ?? id)}
+            stockNames={getScenarioTargetLabels(scenario, stocks, markets)}
           />
         ))}
       </section>

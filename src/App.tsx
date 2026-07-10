@@ -24,8 +24,27 @@ export default function App() {
   if (!isReady) {
     return (
       <div className="boot">
-        <div className="brand-mark">VF</div>
-        <p>V-FANDEX 시장 데이터를 불러오는 중</p>
+        <div className="boot-stage" aria-hidden="true">
+          <span className="boot-ring outer" />
+          <span className="boot-ring inner" />
+          <span className="boot-sweep" />
+          <img className="boot-logo" src="/assets/v-fandex-logo.svg" alt="" />
+          <span className="boot-tick tick-a" />
+          <span className="boot-tick tick-b" />
+          <span className="boot-tick tick-c" />
+        </div>
+        <div className="boot-copy">
+          <span className="eyebrow">Opening Market</span>
+          <h1>V-FANDEX</h1>
+          <p>실시간 시장 데이터와 포트폴리오를 불러오는 중입니다.</p>
+        </div>
+        <div className="boot-bars" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+          <i />
+          <i />
+        </div>
       </div>
     );
   }

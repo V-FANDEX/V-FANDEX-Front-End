@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   Bot,
   Building2,
@@ -22,7 +23,7 @@ import {
   WalletCards,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import {
   Area,
   AreaChart,
@@ -38,11 +39,24 @@ import {
   YAxis,
 } from 'recharts';
 import { StatCard } from '../components/Cards';
-import { adminApi } from '../services/adminApi';
+import { adminApi, type AdminMarketSimulationPayload } from '../services/adminApi';
 import { useFandexStore } from '../store/useFandexStore';
 import type { AdminSection } from '../types/admin';
-import type { AdminDashboard, DividendSchedule, Market, RankingEntry, ScenarioApplyResult, SeasonInfo, SeasonResetResult, Stock } from '../types';
+import type {
+  AdminDashboard,
+  DividendSchedule,
+  Market,
+  MarketSimulationRunResult,
+  MarketSimulationSettings,
+  RankingEntry,
+  ScenarioApplyResult,
+  ScenarioLog,
+  SeasonInfo,
+  SeasonResetResult,
+  Stock,
+} from '../types';
 import { compact, currency, dateTime } from '../utils/format';
+import { formatStockWithMarket } from '../utils/scenarioLabels';
 
 interface AdminNavItem {
   id: AdminSection;
@@ -67,6 +81,7 @@ interface AdminActionOptions {
   stockOptions: AdminSelectOption[];
   aiOptions: AdminSelectOption[];
   userOptions: AdminSelectOption[];
+  scenarioOptions: AdminSelectOption[];
 }
 
 interface AdminActionRequest {
@@ -84,6 +99,7 @@ const adminNavItems: AdminNavItem[] = [
   { id: 'stocks', label: '종목 관리', description: '상장/비활성화', icon: <Coins size={18} /> },
   { id: 'ai', label: 'AI 계정', description: '성향/선호 장', icon: <Bot size={18} /> },
   { id: 'scenarios', label: '시나리오', description: 'GPT 생성/적용', icon: <Sparkles size={18} /> },
+  { id: 'simulation', label: '시장 시뮬레이션', description: '자동 가격 변동', icon: <Activity size={18} /> },
   { id: 'dividends', label: '배당 정책', description: '회복 시스템', icon: <WalletCards size={18} /> },
   { id: 'users', label: '유저 관리', description: '권한/랭킹', icon: <Users size={18} /> },
 ];
@@ -120,8 +136,12 @@ export function AdminPage() {
   const [adminDashboard, setAdminDashboard] = useState<AdminDashboard>();
   const [adminMarkets, setAdminMarkets] = useState<Market[]>([]);
   const [adminStocks, setAdminStocks] = useState<Stock[]>([]);
+  const [marketSimulationSettings, setMarketSimulationSettings] = useState<MarketSimulationSettings>();
+  const [marketSimulationResult, setMarketSimulationResult] = useState<MarketSimulationRunResult | null>(null);
   const [scenarioApplyResult, setScenarioApplyResult] = useState<ScenarioApplyResult | null>(null);
   const [seasonResetResult, setSeasonResetResult] = useState<SeasonResetResult | null>(null);
+  const [isSimulationSaving, setIsSimulationSaving] = useState(false);
+  const [isSimulationRunning, setIsSimulationRunning] = useState(false);
   const [isAdminDataLoading, setIsAdminDataLoading] = useState(false);
   const adminMarketsForView = adminMarkets.length ? adminMarkets : markets;
   const adminStocksForView = adminStocks.length ? adminStocks : stocks;
@@ -134,15 +154,17 @@ export function AdminPage() {
   const refreshAdminData = useCallback(async (silent = false) => {
     setIsAdminDataLoading(true);
     try {
-      const [dashboard, marketsData, stocksData, settingsData] = await Promise.all([
+      const [dashboard, marketsData, stocksData, settingsData, simulationData] = await Promise.all([
         adminApi.getDashboard(),
         adminApi.getMarkets({ includeInactive: true }),
         adminApi.getStocks({ includeUnlisted: true }),
         adminApi.getDividendSettings(),
+        adminApi.getMarketSimulationSettings(),
       ]);
       setAdminDashboard(dashboard);
       setAdminMarkets(marketsData);
       setAdminStocks(stocksData);
+      setMarketSimulationSettings(simulationData);
       updateDividendSchedule(settingsData);
       if (!silent) notify('관리자 데이터가 새로고침되었습니다.');
     } catch (error) {
@@ -183,11 +205,12 @@ export function AdminPage() {
   const actionOptions = useMemo<AdminActionOptions>(
     () => ({
       marketOptions: buildMarketOptions(adminMarketsForView),
-      stockOptions: buildStockOptions(adminStocksForView),
+      stockOptions: buildStockOptions(adminStocksForView, adminMarketsForView),
       aiOptions: buildAiOptions(aiAccounts),
       userOptions: buildUserOptions(rankings),
+      scenarioOptions: buildScenarioOptions(scenarios),
     }),
-    [adminMarketsForView, adminStocksForView, aiAccounts, rankings],
+    [adminMarketsForView, adminStocksForView, aiAccounts, rankings, scenarios],
   );
   const buildCurrentActionRequest = useCallback((section: AdminSection, action: string) => {
     const request = createAdminActionRequest(section, action, actionOptions);
@@ -245,6 +268,37 @@ export function AdminPage() {
       notify(error instanceof Error ? error.message : '관리자 요청 처리에 실패했습니다.');
     } finally {
       setIsSubmittingAction(false);
+    }
+  };
+
+  const saveMarketSimulationSettings = async (values: AdminMarketSimulationPayload) => {
+    setIsSimulationSaving(true);
+    try {
+      const updated = await adminApi.updateMarketSimulationSettings(values);
+      setMarketSimulationSettings(updated);
+      notify(updated.isEnabled ? '자동 가격 변동 설정이 활성화되었습니다.' : '자동 가격 변동 설정이 저장되었습니다.');
+      await refreshAdminData(true);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '시장 시뮬레이션 설정 저장에 실패했습니다.');
+    } finally {
+      setIsSimulationSaving(false);
+    }
+  };
+
+  const runMarketSimulation = async () => {
+    setIsSimulationRunning(true);
+    try {
+      const result = await adminApi.runMarketSimulation();
+      setMarketSimulationResult(result);
+      notify(`시장 시뮬레이션 실행 완료 · ${result.affectedCount.toLocaleString('ko-KR')}개 종목 변동`);
+      const refreshResults = await Promise.allSettled([load(), refreshAdminData(true)]);
+      if (refreshResults.some((item) => item.status === 'rejected')) {
+        notify('시뮬레이션은 완료됐지만 일부 데이터 새로고침에 실패했습니다. 새로고침을 눌러주세요.');
+      }
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '시장 시뮬레이션 실행에 실패했습니다.');
+    } finally {
+      setIsSimulationRunning(false);
     }
   };
 
@@ -323,7 +377,6 @@ export function AdminPage() {
         {activeSection === 'markets' && (
           <MarketsSection
             rows={adminMarketsForView.map((market) => [
-              market.id,
               market.name,
               `${market.stockCount}개`,
               currency(market.marketCap),
@@ -336,8 +389,8 @@ export function AdminPage() {
         {activeSection === 'stocks' && (
           <StocksSection
             rows={adminStocksForView.map((stock) => [
-              stock.id,
               stock.name,
+              stock.market?.name ?? adminMarketsForView.find((market) => market.id === stock.marketId)?.name ?? '-',
               stock.symbol,
               currency(stock.price),
               compact(stock.volume),
@@ -365,6 +418,16 @@ export function AdminPage() {
               dateTime(scenario.occurredAt),
             ])}
             onAction={openActionRequest}
+          />
+        )}
+        {activeSection === 'simulation' && (
+          <MarketSimulationSection
+            settings={marketSimulationSettings}
+            listedStockCount={adminStocksForView.filter((stock) => stock.status === 'LISTED' || stock.active).length}
+            isSaving={isSimulationSaving}
+            isRunning={isSimulationRunning}
+            onSave={saveMarketSimulationSettings}
+            onRun={runMarketSimulation}
           />
         )}
         {activeSection === 'dividends' && (
@@ -416,7 +479,20 @@ export function AdminPage() {
         />
       )}
       {scenarioApplyResult && (
-        <ScenarioApplyResultModal result={scenarioApplyResult} onClose={() => setScenarioApplyResult(null)} />
+        <ScenarioApplyResultModal
+          result={scenarioApplyResult}
+          stocks={adminStocksForView}
+          markets={adminMarketsForView}
+          onClose={() => setScenarioApplyResult(null)}
+        />
+      )}
+      {marketSimulationResult && (
+        <MarketSimulationResultModal
+          result={marketSimulationResult}
+          stocks={adminStocksForView}
+          markets={adminMarketsForView}
+          onClose={() => setMarketSimulationResult(null)}
+        />
       )}
       {seasonResetResult && (
         <SeasonResetResultModal result={seasonResetResult} onClose={() => setSeasonResetResult(null)} />
@@ -558,7 +634,7 @@ function MarketsSection({ rows, onAction }: { rows: Array<Array<ReactNode>>; onA
       onAction={onAction}
       formTitle="장 추가 / 수정"
       fields={['장 이름', '장 설명', '아이콘', '정렬 순서']}
-      table={{ columns: ['ID', '장 이름', '종목 수', '시가총액', '거래량', '상태'], rows }}
+      table={{ columns: ['장 이름', '종목 수', '시가총액', '거래량', '상태'], rows }}
     />
   );
 }
@@ -575,7 +651,7 @@ function StocksSection({ rows, onAction }: { rows: Array<Array<ReactNode>>; onAc
       onAction={onAction}
       formTitle="종목 상장 폼"
       fields={['종목명', '소속 장', '초기 가격', '초기 발행량', '설명', '이미지 URL', '태그', '기본 배당률', '변동성 등급']}
-      table={{ columns: ['ID', '종목', '심볼', '현재가', '거래량', '거래대금', '상태', '배당'], rows }}
+      table={{ columns: ['종목', '소속 장', '심볼', '현재가', '거래량', '거래대금', '상태', '배당'], rows }}
     />
   );
 }
@@ -611,6 +687,232 @@ function ScenarioSection({ scenarioCount, rows, onAction }: { scenarioCount: num
       fields={['시나리오 유형', '영향 장', '영향 종목', '변동 방향', '변동 강도']}
       table={{ columns: ['제목', '유형', '방향', '강도', '발생 시간'], rows }}
     />
+  );
+}
+
+interface SimulationFormState {
+  isEnabled: boolean;
+  intervalMinutes: string;
+  minChangeRate: string;
+  maxChangeRate: string;
+  extremeMinRate: string;
+  extremeMaxRate: string;
+  extremeChance: string;
+  volatilityWeight: string;
+  targetStockCount: string;
+  nextRunAt: string;
+}
+
+function MarketSimulationSection({
+  settings,
+  listedStockCount,
+  isSaving,
+  isRunning,
+  onSave,
+  onRun,
+}: {
+  settings?: MarketSimulationSettings;
+  listedStockCount: number;
+  isSaving: boolean;
+  isRunning: boolean;
+  onSave: (values: AdminMarketSimulationPayload) => void | Promise<void>;
+  onRun: () => void | Promise<void>;
+}) {
+  const [form, setForm] = useState<SimulationFormState>(() => buildSimulationFormState(settings));
+
+  useEffect(() => {
+    setForm(buildSimulationFormState(settings));
+  }, [settings]);
+
+  const setField = (name: keyof SimulationFormState, value: string | boolean) => {
+    setForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const submitSettings = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextRunAt = form.nextRunAt ? new Date(form.nextRunAt).toISOString() : undefined;
+    const targetStockCountValue = Number(form.targetStockCount);
+    const targetStockCount = form.targetStockCount.trim() && Number.isFinite(targetStockCountValue)
+      ? Math.max(1, Math.trunc(targetStockCountValue))
+      : null;
+    void onSave({
+      isEnabled: form.isEnabled,
+      intervalMinutes: Math.max(1, Math.trunc(safeNumber(form.intervalMinutes, 5))),
+      minChangeRate: safeNumber(form.minChangeRate, -7),
+      maxChangeRate: safeNumber(form.maxChangeRate, 7),
+      extremeMinRate: safeNumber(form.extremeMinRate, -80),
+      extremeMaxRate: safeNumber(form.extremeMaxRate, 300),
+      extremeChance: clamp(safeNumber(form.extremeChance, 0.04), 0, 1),
+      volatilityWeight: Math.max(0, safeNumber(form.volatilityWeight, 1)),
+      targetStockCount,
+      ...(nextRunAt ? { nextRunAt } : {}),
+    });
+  };
+
+  return (
+    <section className="simulation-grid">
+      <form className="panel simulation-control-panel" onSubmit={submitSettings}>
+        <div className="panel-title">
+          <Activity size={20} />
+          <h2>자동 가격 변동 설정</h2>
+        </div>
+
+        <label className={form.isEnabled ? 'simulation-toggle active' : 'simulation-toggle'}>
+          <input
+            type="checkbox"
+            checked={form.isEnabled}
+            onChange={(event) => setField('isEnabled', event.target.checked)}
+          />
+          <span className="simulation-toggle-track"><i /></span>
+          <span>
+            <strong>{form.isEnabled ? '자동 실행 ON' : '자동 실행 OFF'}</strong>
+            <small>설정된 주기마다 시장 가격을 자동으로 변동합니다.</small>
+          </span>
+        </label>
+
+        <div className="simulation-form-grid">
+          <SimulationNumberField
+            label="실행 주기(분)"
+            value={form.intervalMinutes}
+            min={1}
+            step={1}
+            onChange={(value) => setField('intervalMinutes', value)}
+          />
+          <SimulationNumberField
+            label="변동성 가중치"
+            value={form.volatilityWeight}
+            min={0}
+            step={0.1}
+            onChange={(value) => setField('volatilityWeight', value)}
+          />
+          <SimulationNumberField
+            label="일반 변동률 최소(%)"
+            value={form.minChangeRate}
+            step={0.1}
+            onChange={(value) => setField('minChangeRate', value)}
+          />
+          <SimulationNumberField
+            label="일반 변동률 최대(%)"
+            value={form.maxChangeRate}
+            step={0.1}
+            onChange={(value) => setField('maxChangeRate', value)}
+          />
+          <SimulationNumberField
+            label="극단 변동률 최소(%)"
+            value={form.extremeMinRate}
+            step={1}
+            onChange={(value) => setField('extremeMinRate', value)}
+          />
+          <SimulationNumberField
+            label="극단 변동률 최대(%)"
+            value={form.extremeMaxRate}
+            step={1}
+            onChange={(value) => setField('extremeMaxRate', value)}
+          />
+          <SimulationNumberField
+            label="대상 종목 수"
+            value={form.targetStockCount}
+            min={1}
+            step={1}
+            placeholder="전체 상장 종목"
+            onChange={(value) => setField('targetStockCount', value)}
+          />
+          <label className="field simulation-field">
+            <span>다음 자동 실행 시각</span>
+            <input
+              type="datetime-local"
+              value={form.nextRunAt}
+              onChange={(event) => setField('nextRunAt', event.target.value)}
+            />
+          </label>
+        </div>
+
+        <label className="field simulation-field wide">
+          <span>극단 변동 확률</span>
+          <div className="simulation-slider-row">
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={form.extremeChance}
+              onChange={(event) => setField('extremeChance', event.target.value)}
+            />
+            <input
+              type="number"
+              min="0"
+              max="1"
+              step="0.01"
+              value={form.extremeChance}
+              onChange={(event) => setField('extremeChance', event.target.value)}
+              aria-label="극단 변동 확률 숫자 입력"
+            />
+          </div>
+        </label>
+
+        <p className="simulation-note">서버가 깨어 있을 때 자동 실행됩니다. Render Free 환경에서는 sleep 상태일 때 스케줄러가 잠시 멈출 수 있습니다.</p>
+
+        <div className="simulation-actions">
+          <button className="secondary-button" type="button" onClick={() => void onRun()} disabled={isRunning || isSaving}>
+            <RefreshCw size={17} /> {isRunning ? '실행 중' : '수동 실행'}
+          </button>
+          <button className="primary-button" type="submit" disabled={isSaving || isRunning}>
+            <ShieldCheck size={17} /> {isSaving ? '저장 중' : '설정 저장'}
+          </button>
+        </div>
+      </form>
+
+      <article className="panel simulation-status-panel">
+        <div className="panel-title">
+          <LineChart size={20} />
+          <h2>실행 상태</h2>
+        </div>
+        <div className="admin-summary-list">
+          <SummaryItem label="자동 실행" value={settings?.isEnabled ? '활성' : '비활성'} />
+          <SummaryItem label="실행 주기" value={`${settings?.intervalMinutes ?? 5}분`} />
+          <SummaryItem label="일반 변동 범위" value={`${settings?.minChangeRate ?? -7}% ~ ${settings?.maxChangeRate ?? 7}%`} />
+          <SummaryItem label="극단 변동 범위" value={`${settings?.extremeMinRate ?? -80}% ~ ${settings?.extremeMaxRate ?? 300}%`} />
+          <SummaryItem label="극단 확률" value={`${((settings?.extremeChance ?? 0.04) * 100).toFixed(1)}%`} />
+          <SummaryItem label="대상 종목" value={settings?.targetStockCount ? `${settings.targetStockCount}개` : `전체 ${listedStockCount}개`} />
+          <SummaryItem label="최근 실행" value={settings?.lastRunAt ? dateTime(settings.lastRunAt) : '-'} />
+          <SummaryItem label="다음 실행" value={settings?.nextRunAt ? dateTime(settings.nextRunAt) : '-'} />
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function SimulationNumberField({
+  label,
+  value,
+  min,
+  max,
+  step,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  min?: number;
+  max?: number;
+  step: number;
+  placeholder?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="field simulation-field">
+      <span>{label}</span>
+      <input
+        type="number"
+        inputMode="decimal"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
   );
 }
 
@@ -825,6 +1127,39 @@ function buildPayoutDateTime(dateValue: string, timeValue: string, timezone: str
   return `${date}T${time}:00${offset}`;
 }
 
+function buildSimulationFormState(settings?: MarketSimulationSettings): SimulationFormState {
+  return {
+    isEnabled: settings?.isEnabled ?? false,
+    intervalMinutes: String(settings?.intervalMinutes ?? 5),
+    minChangeRate: String(settings?.minChangeRate ?? -7),
+    maxChangeRate: String(settings?.maxChangeRate ?? 7),
+    extremeMinRate: String(settings?.extremeMinRate ?? -80),
+    extremeMaxRate: String(settings?.extremeMaxRate ?? 300),
+    extremeChance: String(settings?.extremeChance ?? 0.04),
+    volatilityWeight: String(settings?.volatilityWeight ?? 1),
+    targetStockCount: settings?.targetStockCount ? String(settings.targetStockCount) : '',
+    nextRunAt: toDateTimeLocal(settings?.nextRunAt),
+  };
+}
+
+function toDateTimeLocal(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function safeNumber(value: string, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function ManagementTable({ columns, rows }: { columns: string[]; rows: Array<Array<ReactNode>> }) {
   return (
     <section className="panel admin-table-panel">
@@ -861,7 +1196,17 @@ function OperationLog() {
   );
 }
 
-function ScenarioApplyResultModal({ result, onClose }: { result: ScenarioApplyResult; onClose: () => void }) {
+function ScenarioApplyResultModal({
+  result,
+  stocks,
+  markets,
+  onClose,
+}: {
+  result: ScenarioApplyResult;
+  stocks: Stock[];
+  markets: Market[];
+  onClose: () => void;
+}) {
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scenario-apply-result-title">
       <section className="modal scenario-result-modal">
@@ -881,7 +1226,7 @@ function ScenarioApplyResultModal({ result, onClose }: { result: ScenarioApplyRe
             <h4>변동된 종목</h4>
             {result.affectedStocks.length ? result.affectedStocks.map((stock) => (
               <div className="scenario-result-row" key={stock.stockId}>
-                <strong>{stock.stockName}</strong>
+                <strong>{formatScenarioResultStock(stock, stocks, markets)}</strong>
                 <span>{currency(stock.beforePrice)} → {currency(stock.afterPrice)}</span>
                 <span className={stock.appliedRate >= 0 ? 'positive' : 'negative'}>{stock.appliedRate.toFixed(2)}%</span>
                 {stock.impactReason && <small>{stock.impactReason}</small>}
@@ -894,7 +1239,7 @@ function ScenarioApplyResultModal({ result, onClose }: { result: ScenarioApplyRe
             {result.conditionalOrderResults.length ? result.conditionalOrderResults.map((order, index) => (
               <div className="scenario-result-row" key={order.orderId ?? `${order.stockId}-${index}`}>
                 <strong>{order.type ?? '조건 주문'} · {order.status ?? '-'}</strong>
-                <span>{order.stockId ?? '-'}</span>
+                <span>{formatScenarioResultStock(order, stocks, markets)}</span>
                 <small>{order.reason ?? `${order.quantity ?? 0}주 처리`}</small>
               </div>
             )) : <p className="panel-copy">체결 또는 실패한 조건 주문이 없습니다.</p>}
@@ -906,7 +1251,7 @@ function ScenarioApplyResultModal({ result, onClose }: { result: ScenarioApplyRe
             {result.aiTradeResults.length ? result.aiTradeResults.map((trade, index) => (
               <div className="scenario-result-row" key={trade.tradeId ?? `${trade.aiAccountId}-${index}`}>
                 <strong>{trade.action}</strong>
-                <span>{trade.stockId ?? '-'} · {(trade.quantity ?? 0).toLocaleString('ko-KR')}주</span>
+                <span>{formatScenarioResultStock(trade, stocks, markets)} · {(trade.quantity ?? 0).toLocaleString('ko-KR')}주</span>
                 <small>{trade.reason ?? '자동 거래 결과'}</small>
               </div>
             )) : <p className="panel-copy">AI 자동 거래 결과가 없습니다.</p>}
@@ -919,6 +1264,89 @@ function ScenarioApplyResultModal({ result, onClose }: { result: ScenarioApplyRe
       </section>
     </div>
   );
+}
+
+function MarketSimulationResultModal({
+  result,
+  stocks,
+  markets,
+  onClose,
+}: {
+  result: MarketSimulationRunResult;
+  stocks: Stock[];
+  markets: Market[];
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="market-simulation-result-title">
+      <section className="modal scenario-result-modal">
+        <div className="admin-request-head">
+          <div>
+            <span className="eyebrow">Market Simulation</span>
+            <h3 id="market-simulation-result-title">시장 시뮬레이션 실행 결과</h3>
+            <p>{result.mode} · {result.affectedCount.toLocaleString('ko-KR')}개 종목 변동</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="결과 닫기">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="scenario-result-grid">
+          <article className="scenario-result-section wide">
+            <h4>변동된 종목</h4>
+            {result.affectedStocks.length ? result.affectedStocks.map((stock, index) => (
+              <div className="scenario-result-row simulation-result-row" key={`${stock.stockId}-${index}`}>
+                <strong>{formatScenarioResultStock(stock, stocks, markets)}</strong>
+                <span>{currency(stock.beforePrice)} → {currency(stock.afterPrice)}</span>
+                <span className={stock.appliedRate >= 0 ? 'positive' : 'negative'}>{stock.appliedRate.toFixed(2)}%</span>
+                <span className={stock.mode === 'EXTREME' ? 'simulation-mode-pill extreme' : 'simulation-mode-pill'}>
+                  {formatSimulationMode(stock.mode)}
+                </span>
+                {stock.reason && <small>{stock.reason}</small>}
+              </div>
+            )) : <p className="panel-copy">변동된 종목이 없습니다.</p>}
+          </article>
+
+          <article className="scenario-result-section wide">
+            <h4>조건 주문 처리</h4>
+            {result.conditionalOrderResults.length ? result.conditionalOrderResults.map((order, index) => (
+              <div className="scenario-result-row" key={order.orderId ?? `${order.stockId}-${index}`}>
+                <strong>{order.type ?? '조건 주문'} · {order.status ?? '-'}</strong>
+                <span>{formatScenarioResultStock(order, stocks, markets)}</span>
+                <small>{order.reason ?? `${order.quantity ?? 0}주 처리`}</small>
+              </div>
+            )) : <p className="panel-copy">체결 또는 실패한 조건 주문이 없습니다.</p>}
+          </article>
+        </div>
+
+        {result.nextRunAt && <p className="simulation-note">다음 자동 실행 예정: {dateTime(result.nextRunAt)}</p>}
+
+        <div className="modal-actions">
+          <button className="primary-button" type="button" onClick={onClose}>확인</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function formatScenarioResultStock(
+  target: { stockId?: string; stockName?: string; marketId?: string; marketName?: string },
+  stocks: Stock[],
+  markets: Market[],
+) {
+  const stock = target.stockId ? stocks.find((item) => item.id === target.stockId) : undefined;
+  const stockName = target.stockName ?? stock?.name ?? '종목 정보 없음';
+  const marketName =
+    target.marketName ??
+    stock?.market?.name ??
+    markets.find((market) => market.id === (target.marketId ?? stock?.marketId))?.name;
+  return marketName && stockName !== '종목 정보 없음' ? `${marketName} · ${stockName}` : stockName;
+}
+
+function formatSimulationMode(mode?: string) {
+  if (mode === 'EXTREME') return 'EXTREME';
+  if (mode === 'NORMAL') return 'NORMAL';
+  return mode ?? 'NORMAL';
 }
 
 function SeasonResetResultModal({ result, onClose }: { result: SeasonResetResult; onClose: () => void }) {
@@ -1258,11 +1686,13 @@ const fallbackMarketOptions: AdminSelectOption[] = ['버츄얼 & 스트리머장
 const fallbackStockOptions: AdminSelectOption[] = ['노바 린', '픽셀 민트', '루나 콰이어', '블루 아크 마스코트', '오리온 학원', '네온 아이돌즈'];
 const fallbackAiOptions: AdminSelectOption[] = ['ALPHA-팬덤퀀트', 'BETA-안정배당', '전체 AI 계정'];
 const fallbackUserOptions: AdminSelectOption[] = ['플레이어01', '마루트레이더', '하루차트', '전체 사용자'];
+const fallbackScenarioOptions: AdminSelectOption[] = [blankSelectOption('적용 가능한 시나리오 없음')];
 const defaultActionOptions: AdminActionOptions = {
   marketOptions: fallbackMarketOptions,
   stockOptions: fallbackStockOptions,
   aiOptions: fallbackAiOptions,
   userOptions: fallbackUserOptions,
+  scenarioOptions: fallbackScenarioOptions,
 };
 
 function toSelectOption(option: AdminSelectOption) {
@@ -1283,12 +1713,12 @@ function buildMarketOptions(markets: Market[]): AdminSelectOption[] {
     }));
 }
 
-function buildStockOptions(stocks: Stock[]): AdminSelectOption[] {
+function buildStockOptions(stocks: Stock[], markets: Market[] = []): AdminSelectOption[] {
   if (!stocks.length) return fallbackStockOptions;
   return [...stocks]
     .sort((a, b) => a.name.localeCompare(b.name, 'ko-KR'))
     .map((stock) => ({
-      label: `${stock.name}${stock.status && stock.status !== 'LISTED' ? ` (${formatStockStatus(stock.status)})` : ''}`,
+      label: `${formatStockWithMarket(stock, markets)}${stock.status && stock.status !== 'LISTED' ? ` (${formatStockStatus(stock.status)})` : ''}`,
       value: stock.id,
     }));
 }
@@ -1316,12 +1746,22 @@ function buildUserOptions(entries: RankingEntry[]): AdminSelectOption[] {
   ];
 }
 
+function buildScenarioOptions(entries: ScenarioLog[]): AdminSelectOption[] {
+  if (!entries.length) return fallbackScenarioOptions;
+  return [...entries]
+    .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+    .map((scenario) => ({
+      label: `${scenario.type.toUpperCase()} · ${scenario.title} · ${dateTime(scenario.occurredAt)}`,
+      value: scenario.id,
+    }));
+}
+
 function getActionFields(
   section: AdminSection,
   action: string,
   options: AdminActionOptions = defaultActionOptions,
 ): AdminActionField[] {
-  const { marketOptions, stockOptions, aiOptions, userOptions } = options;
+  const { marketOptions, stockOptions, aiOptions, userOptions, scenarioOptions } = options;
 
   if (section === 'season') {
     if (action === '새 시즌 생성') {
@@ -1461,7 +1901,7 @@ function getActionFields(
     }
     if (action === '시나리오 적용') {
       return [
-        { name: 'scenarioId', label: '시나리오 ID', placeholder: '적용할 시나리오 ID' },
+        { name: 'scenarioId', label: '적용할 시나리오', type: 'select', options: scenarioOptions },
       ];
     }
     return [];

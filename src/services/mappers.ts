@@ -4,6 +4,8 @@ import type {
   DividendSchedule,
   Holding,
   Market,
+  MarketSimulationRunResult,
+  MarketSimulationSettings,
   RankingEntry,
   Role,
   ScenarioImpact,
@@ -400,9 +402,13 @@ export function mapScenarioApplyResult(raw: unknown): ScenarioApplyResult {
     title: String(source.title ?? '시나리오 적용 결과'),
     affectedStocks: listFromRecord(source.affectedStocks).map((item) => {
       const stock = asRecord(item);
+      const nestedStock = asRecord(stock.stock);
+      const market = asRecord(stock.market ?? nestedStock.market);
       return {
-        stockId: String(stock.stockId ?? ''),
-        stockName: String(stock.stockName ?? stock.name ?? stock.stockId ?? '종목'),
+        stockId: String(stock.stockId ?? nestedStock.id ?? ''),
+        stockName: String(stock.stockName ?? nestedStock.name ?? stock.name ?? stock.stockId ?? '종목'),
+        marketId: stock.marketId || market.id ? String(stock.marketId ?? market.id) : undefined,
+        marketName: stock.marketName || market.name ? String(stock.marketName ?? market.name) : undefined,
         beforePrice: toNumber(stock.beforePrice ?? stock.oldPrice),
         afterPrice: toNumber(stock.afterPrice ?? stock.newPrice),
         appliedRate: toNumber(stock.appliedRate ?? stock.changeRate),
@@ -411,9 +417,14 @@ export function mapScenarioApplyResult(raw: unknown): ScenarioApplyResult {
     }),
     conditionalOrderResults: listFromRecord(source.conditionalOrderResults).map((item) => {
       const result = asRecord(item);
+      const stock = asRecord(result.stock);
+      const market = asRecord(result.market ?? stock.market);
       return {
         orderId: result.orderId ? String(result.orderId) : undefined,
-        stockId: result.stockId ? String(result.stockId) : undefined,
+        stockId: result.stockId || stock.id ? String(result.stockId ?? stock.id) : undefined,
+        stockName: result.stockName || stock.name ? String(result.stockName ?? stock.name) : undefined,
+        marketId: result.marketId || market.id ? String(result.marketId ?? market.id) : undefined,
+        marketName: result.marketName || market.name ? String(result.marketName ?? market.name) : undefined,
         status: result.status ? String(result.status) : undefined,
         type: result.type ? String(result.type) : undefined,
         quantity: toNumber(result.quantity),
@@ -423,16 +434,84 @@ export function mapScenarioApplyResult(raw: unknown): ScenarioApplyResult {
     aiTradeSummary: source.aiTradeSummary ? String(source.aiTradeSummary) : undefined,
     aiTradeResults: listFromRecord(source.aiTradeResults).map((item) => {
       const result = asRecord(item);
+      const stock = asRecord(result.stock);
+      const market = asRecord(result.market ?? stock.market);
       return {
         aiAccountId: result.aiAccountId ? String(result.aiAccountId) : undefined,
         userId: result.userId ? String(result.userId) : undefined,
         action: String(result.action ?? '-'),
-        stockId: result.stockId ? String(result.stockId) : undefined,
+        stockId: result.stockId || stock.id ? String(result.stockId ?? stock.id) : undefined,
+        stockName: result.stockName || stock.name ? String(result.stockName ?? stock.name) : undefined,
+        marketId: result.marketId || market.id ? String(result.marketId ?? market.id) : undefined,
+        marketName: result.marketName || market.name ? String(result.marketName ?? market.name) : undefined,
         quantity: toNumber(result.quantity),
         tradeId: result.tradeId ? String(result.tradeId) : undefined,
         reason: result.reason ? String(result.reason) : undefined,
       };
     }),
+  };
+}
+
+export function mapMarketSimulationSettings(raw: unknown): MarketSimulationSettings {
+  const source = asRecord(raw);
+  return {
+    id: String(source.id ?? 'default'),
+    isEnabled: Boolean(source.isEnabled ?? false),
+    intervalMinutes: toNumber(source.intervalMinutes, 5),
+    minChangeRate: toNumber(source.minChangeRate, -7),
+    maxChangeRate: toNumber(source.maxChangeRate, 7),
+    extremeMinRate: toNumber(source.extremeMinRate, -80),
+    extremeMaxRate: toNumber(source.extremeMaxRate, 300),
+    extremeChance: toNumber(source.extremeChance, 0.04),
+    volatilityWeight: toNumber(source.volatilityWeight, 1),
+    targetStockCount: source.targetStockCount === null || source.targetStockCount === undefined
+      ? null
+      : toNumber(source.targetStockCount),
+    lastRunAt: source.lastRunAt ? String(source.lastRunAt) : null,
+    nextRunAt: source.nextRunAt ? String(source.nextRunAt) : null,
+    updatedAt: source.updatedAt ? String(source.updatedAt) : undefined,
+  };
+}
+
+export function mapMarketSimulationRunResult(raw: unknown): MarketSimulationRunResult {
+  const source = asRecord(raw);
+  return {
+    ok: Boolean(source.ok ?? true),
+    mode: String(source.mode ?? 'MANUAL'),
+    affectedCount: toNumber(source.affectedCount),
+    affectedStocks: listFromRecord(source.affectedStocks).map((item) => {
+      const result = asRecord(item);
+      const stock = asRecord(result.stock);
+      const market = asRecord(result.market ?? stock.market);
+      return {
+        stockId: String(result.stockId ?? stock.id ?? ''),
+        stockName: String(result.stockName ?? stock.name ?? result.name ?? '종목'),
+        marketId: result.marketId || market.id ? String(result.marketId ?? market.id) : undefined,
+        marketName: result.marketName || market.name ? String(result.marketName ?? market.name) : undefined,
+        beforePrice: toNumber(result.beforePrice ?? result.oldPrice),
+        afterPrice: toNumber(result.afterPrice ?? result.newPrice),
+        appliedRate: toNumber(result.appliedRate ?? result.changeRate),
+        mode: String(result.mode ?? 'NORMAL'),
+        reason: result.reason ? String(result.reason) : undefined,
+      };
+    }),
+    conditionalOrderResults: listFromRecord(source.conditionalOrderResults).map((item) => {
+      const result = asRecord(item);
+      const stock = asRecord(result.stock);
+      const market = asRecord(result.market ?? stock.market);
+      return {
+        orderId: result.orderId ? String(result.orderId) : undefined,
+        stockId: result.stockId || stock.id ? String(result.stockId ?? stock.id) : undefined,
+        stockName: result.stockName || stock.name ? String(result.stockName ?? stock.name) : undefined,
+        marketId: result.marketId || market.id ? String(result.marketId ?? market.id) : undefined,
+        marketName: result.marketName || market.name ? String(result.marketName ?? market.name) : undefined,
+        status: result.status ? String(result.status) : undefined,
+        type: result.type ? String(result.type) : undefined,
+        quantity: toNumber(result.quantity),
+        reason: result.reason ?? result.failureReason ? String(result.reason ?? result.failureReason) : undefined,
+      };
+    }),
+    nextRunAt: source.nextRunAt ? String(source.nextRunAt) : null,
   };
 }
 

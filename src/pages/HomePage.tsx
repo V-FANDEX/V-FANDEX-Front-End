@@ -5,6 +5,7 @@ import { Change, RankingCard, ScenarioCard, StatCard, StockRow } from '../compon
 import { useFandexStore } from '../store/useFandexStore';
 import type { Market, Stock } from '../types';
 import { compact, currency } from '../utils/format';
+import { getScenarioTargetLabels } from '../utils/scenarioLabels';
 
 export function HomePage() {
   const { markets, stocks, user, season, scenarios, rankings, toggleFavorite } = useFandexStore();
@@ -103,7 +104,7 @@ export function HomePage() {
         <article className="panel">
           <div className="panel-title"><Flame size={20} /><h2>오늘의 주요 변동</h2></div>
           {scenarios.slice(0, 2).map((scenario) => (
-            <ScenarioCard key={scenario.id} scenario={scenario} stockNames={scenario.affectedStockIds} />
+            <ScenarioCard key={scenario.id} scenario={scenario} stockNames={getScenarioTargetLabels(scenario, stocks, markets)} />
           ))}
         </article>
       </section>

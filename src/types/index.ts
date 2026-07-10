@@ -218,6 +218,8 @@ export interface SeasonResetResult {
 export interface ScenarioAppliedStock {
   stockId: string;
   stockName: string;
+  marketId?: string;
+  marketName?: string;
   beforePrice: number;
   afterPrice: number;
   appliedRate: number;
@@ -227,6 +229,9 @@ export interface ScenarioAppliedStock {
 export interface ScenarioConditionalOrderResult {
   orderId?: string;
   stockId?: string;
+  stockName?: string;
+  marketId?: string;
+  marketName?: string;
   status?: string;
   type?: string;
   quantity?: number;
@@ -238,6 +243,9 @@ export interface ScenarioAiTradeResult {
   userId?: string;
   action: string;
   stockId?: string;
+  stockName?: string;
+  marketId?: string;
+  marketName?: string;
   quantity?: number;
   tradeId?: string;
   reason?: string;
@@ -250,4 +258,41 @@ export interface ScenarioApplyResult {
   conditionalOrderResults: ScenarioConditionalOrderResult[];
   aiTradeSummary?: string;
   aiTradeResults: ScenarioAiTradeResult[];
+}
+
+export interface MarketSimulationSettings {
+  id: string;
+  isEnabled: boolean;
+  intervalMinutes: number;
+  minChangeRate: number;
+  maxChangeRate: number;
+  extremeMinRate: number;
+  extremeMaxRate: number;
+  extremeChance: number;
+  volatilityWeight: number;
+  targetStockCount?: number | null;
+  lastRunAt?: string | null;
+  nextRunAt?: string | null;
+  updatedAt?: string;
+}
+
+export interface MarketSimulationAffectedStock {
+  stockId: string;
+  stockName: string;
+  marketId?: string;
+  marketName?: string;
+  beforePrice: number;
+  afterPrice: number;
+  appliedRate: number;
+  mode: 'NORMAL' | 'EXTREME' | string;
+  reason?: string;
+}
+
+export interface MarketSimulationRunResult {
+  ok: boolean;
+  mode: 'MANUAL' | 'AUTO' | string;
+  affectedCount: number;
+  affectedStocks: MarketSimulationAffectedStock[];
+  conditionalOrderResults: ScenarioConditionalOrderResult[];
+  nextRunAt?: string | null;
 }

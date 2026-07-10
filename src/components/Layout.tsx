@@ -103,7 +103,7 @@ export function Layout() {
     <div className="app-shell">
       <header className="topbar">
         <NavLink to="/" className="logo" onClick={() => setOpen(false)}>
-          <span className="brand-mark">VF</span>
+          <img className="brand-emblem" src="/assets/v-fandex-logo.svg" alt="" aria-hidden="true" />
           <span>
             <strong>V-FANDEX</strong>
             <small>Virtual Fandom Exchange</small>

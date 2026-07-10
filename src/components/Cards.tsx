@@ -76,7 +76,7 @@ export function ScenarioCard({ scenario, stockNames }: { scenario: ScenarioLog; 
       <p>{scenario.description}</p>
       <div className="scenario-meta">
         <Change value={scenario.direction === 'up' ? scenario.strength / 10 : -scenario.strength / 10} />
-        <span>영향 종목 {stockNames.join(', ')}</span>
+        <span>영향 대상 {stockNames.join(', ')}</span>
       </div>
     </article>
   );

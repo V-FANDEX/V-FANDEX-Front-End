@@ -1,6 +1,8 @@
 import { ArrowRight, Clapperboard, Mic2, Radio, Sparkles } from 'lucide-react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Change } from '../components/Cards';
+import { enrichMarkets } from '../services/mappers';
 import { useFandexStore } from '../store/useFandexStore';
 import { compact, currency } from '../utils/format';
 
@@ -8,6 +10,8 @@ const icons = { Radio, Mic2, Sparkles, Clapperboard };
 
 export function MarketListPage() {
   const markets = useFandexStore((state) => state.markets);
+  const stocks = useFandexStore((state) => state.stocks);
+  const marketSummaries = useMemo(() => enrichMarkets(markets, stocks), [markets, stocks]);
 
   return (
     <div className="page">
@@ -17,7 +21,7 @@ export function MarketListPage() {
         <p>코스피/코스닥처럼 분리된 팬덤 기반 시장을 탐색하세요.</p>
       </header>
       <section className="market-grid">
-        {markets.map((market) => {
+        {marketSummaries.map((market) => {
           const Icon = icons[market.icon as keyof typeof icons] ?? Sparkles;
           return (
             <Link className="market-card" key={market.id} to={`/markets/${market.id}`}>

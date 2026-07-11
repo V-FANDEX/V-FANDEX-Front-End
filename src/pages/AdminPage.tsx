@@ -21,6 +21,7 @@ import {
   Trophy,
   Users,
   WalletCards,
+  Workflow,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
@@ -39,17 +40,26 @@ import {
   YAxis,
 } from 'recharts';
 import { StatCard } from '../components/Cards';
-import { adminApi, type AdminMarketSimulationPayload } from '../services/adminApi';
+import {
+  adminApi,
+  type AdminMarketSimulationPayload,
+  type AdminScenarioAutomationPayload,
+} from '../services/adminApi';
+import { enrichMarkets } from '../services/mappers';
 import { useFandexStore } from '../store/useFandexStore';
 import type { AdminSection } from '../types/admin';
 import type {
   AdminDashboard,
+  AdminAiAccount,
   DividendSchedule,
   Market,
   MarketSimulationRunResult,
   MarketSimulationSettings,
   RankingEntry,
   ScenarioApplyResult,
+  ScenarioAutomationProcessResult,
+  ScenarioAutomationRunResult,
+  ScenarioAutomationSettings,
   ScenarioLog,
   SeasonInfo,
   SeasonResetResult,
@@ -68,10 +78,16 @@ interface AdminNavItem {
 interface AdminActionField {
   name: string;
   label: string;
-  type?: 'text' | 'number' | 'date' | 'select' | 'textarea' | 'checkbox';
+  type?: 'text' | 'number' | 'date' | 'select' | 'multiselect' | 'textarea' | 'checkbox';
   placeholder?: string;
   options?: AdminSelectOption[];
   defaultValue?: string;
+  required?: boolean;
+  min?: number;
+  max?: number;
+  maxLength?: number;
+  step?: number;
+  maxItems?: number;
 }
 
 type AdminSelectOption = string | { label: string; value: string };
@@ -92,6 +108,8 @@ interface AdminActionRequest {
   fields: AdminActionField[];
 }
 
+type ScenarioAutomationRunMode = 'MAIN' | 'SMALL' | 'DUE';
+
 const adminNavItems: AdminNavItem[] = [
   { id: 'overview', label: '대시보드', description: '서비스 지표', icon: <BarChart3 size={18} /> },
   { id: 'season', label: '시즌 운영', description: '초기화/자금', icon: <CalendarClock size={18} /> },
@@ -99,6 +117,7 @@ const adminNavItems: AdminNavItem[] = [
   { id: 'stocks', label: '종목 관리', description: '상장/비활성화', icon: <Coins size={18} /> },
   { id: 'ai', label: 'AI 계정', description: '성향/선호 장', icon: <Bot size={18} /> },
   { id: 'scenarios', label: '시나리오', description: 'GPT 생성/적용', icon: <Sparkles size={18} /> },
+  { id: 'scenarioAutomation', label: 'GPT 자동 운영', description: '생성/자동 적용', icon: <Workflow size={18} /> },
   { id: 'simulation', label: '시장 시뮬레이션', description: '자동 가격 변동', icon: <Activity size={18} /> },
   { id: 'dividends', label: '배당 정책', description: '회복 시스템', icon: <WalletCards size={18} /> },
   { id: 'users', label: '유저 관리', description: '권한/랭킹', icon: <Users size={18} /> },
@@ -136,35 +155,45 @@ export function AdminPage() {
   const [adminDashboard, setAdminDashboard] = useState<AdminDashboard>();
   const [adminMarkets, setAdminMarkets] = useState<Market[]>([]);
   const [adminStocks, setAdminStocks] = useState<Stock[]>([]);
+  const [adminAiAccounts, setAdminAiAccounts] = useState<AdminAiAccount[]>([]);
   const [marketSimulationSettings, setMarketSimulationSettings] = useState<MarketSimulationSettings>();
   const [marketSimulationResult, setMarketSimulationResult] = useState<MarketSimulationRunResult | null>(null);
+  const [scenarioAutomationSettings, setScenarioAutomationSettings] = useState<ScenarioAutomationSettings>();
+  const [scenarioAutomationResult, setScenarioAutomationResult] = useState<ScenarioAutomationProcessResult | null>(null);
+  const [scenarioAutomationRunRequest, setScenarioAutomationRunRequest] = useState<ScenarioAutomationRunMode | null>(null);
   const [scenarioApplyResult, setScenarioApplyResult] = useState<ScenarioApplyResult | null>(null);
   const [seasonResetResult, setSeasonResetResult] = useState<SeasonResetResult | null>(null);
   const [isSimulationSaving, setIsSimulationSaving] = useState(false);
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
+  const [isAutomationSaving, setIsAutomationSaving] = useState(false);
+  const [automationRunningMode, setAutomationRunningMode] = useState<ScenarioAutomationRunMode | null>(null);
   const [isAdminDataLoading, setIsAdminDataLoading] = useState(false);
   const adminMarketsForView = adminMarkets.length ? adminMarkets : markets;
   const adminStocksForView = adminStocks.length ? adminStocks : stocks;
   const totalCap = adminDashboard?.totalMarketCap ?? adminMarketsForView.reduce((sum, market) => sum + market.marketCap, 0);
   const totalVolume = adminDashboard?.dailyTradeVolume ?? adminMarketsForView.reduce((sum, market) => sum + market.volume, 0);
   const users = useMemo(() => rankings.filter((entry) => entry.role !== 'ai'), [rankings]);
-  const aiAccounts = useMemo(() => rankings.filter((entry) => entry.role === 'ai'), [rankings]);
+  const aiAccounts = adminAiAccounts;
   const activeDividendStocks = adminStocksForView.filter((stock) => stock.dividendEnabled);
 
   const refreshAdminData = useCallback(async (silent = false) => {
     setIsAdminDataLoading(true);
     try {
-      const [dashboard, marketsData, stocksData, settingsData, simulationData] = await Promise.all([
+      const [dashboard, marketsData, stocksData, settingsData, simulationData, aiData, automationData] = await Promise.all([
         adminApi.getDashboard(),
         adminApi.getMarkets({ includeInactive: true }),
         adminApi.getStocks({ includeUnlisted: true }),
         adminApi.getDividendSettings(),
         adminApi.getMarketSimulationSettings(),
+        adminApi.getAiAccounts(),
+        adminApi.getScenarioAutomationSettings(),
       ]);
       setAdminDashboard(dashboard);
-      setAdminMarkets(marketsData);
+      setAdminMarkets(enrichMarkets(marketsData, stocksData));
       setAdminStocks(stocksData);
+      setAdminAiAccounts(aiData);
       setMarketSimulationSettings(simulationData);
+      setScenarioAutomationSettings(automationData);
       updateDividendSchedule(settingsData);
       if (!silent) notify('관리자 데이터가 새로고침되었습니다.');
     } catch (error) {
@@ -302,6 +331,45 @@ export function AdminPage() {
     }
   };
 
+  const saveScenarioAutomationSettings = async (values: AdminScenarioAutomationPayload) => {
+    setIsAutomationSaving(true);
+    try {
+      const updated = await adminApi.updateScenarioAutomationSettings(values);
+      setScenarioAutomationSettings(updated);
+      notify(updated.isEnabled ? 'GPT 시나리오 자동 운영 설정이 활성화되었습니다.' : 'GPT 시나리오 자동 운영 설정이 저장되었습니다.');
+      await refreshAdminData(true);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'GPT 자동 운영 설정 저장에 실패했습니다.');
+    } finally {
+      setIsAutomationSaving(false);
+    }
+  };
+
+  const runScenarioAutomation = async (mode: ScenarioAutomationRunMode) => {
+    setScenarioAutomationRunRequest(null);
+    setAutomationRunningMode(mode);
+    try {
+      const result = mode === 'DUE'
+        ? await adminApi.runDueScenarioAutomation()
+        : wrapScenarioAutomationRunResult(
+          mode === 'MAIN'
+            ? await adminApi.runMainScenarioAutomation()
+            : await adminApi.runSmallScenarioAutomation(),
+        );
+      setScenarioAutomationResult(result);
+      const status = result.results[0]?.status ?? result.status;
+      notify(`GPT 자동 운영 실행 결과 · ${formatAutomationStatus(status)}`);
+      const refreshResults = await Promise.allSettled([load(), refreshAdminData(true)]);
+      if (refreshResults.some((item) => item.status === 'rejected')) {
+        notify('자동 운영 실행은 완료됐지만 일부 데이터 새로고침에 실패했습니다.');
+      }
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'GPT 자동 운영 실행에 실패했습니다.');
+    } finally {
+      setAutomationRunningMode(null);
+    }
+  };
+
   return (
     <div className="admin-page">
       <aside className="admin-sidebar">
@@ -404,6 +472,7 @@ export function AdminPage() {
         {activeSection === 'ai' && (
           <AiSection
             aiAccounts={aiAccounts}
+            markets={adminMarketsForView}
             onAction={openActionRequest}
           />
         )}
@@ -428,6 +497,15 @@ export function AdminPage() {
             isRunning={isSimulationRunning}
             onSave={saveMarketSimulationSettings}
             onRun={runMarketSimulation}
+          />
+        )}
+        {activeSection === 'scenarioAutomation' && (
+          <ScenarioAutomationSection
+            settings={scenarioAutomationSettings}
+            isSaving={isAutomationSaving}
+            runningMode={automationRunningMode}
+            onSave={saveScenarioAutomationSettings}
+            onRequestRun={setScenarioAutomationRunRequest}
           />
         )}
         {activeSection === 'dividends' && (
@@ -496,6 +574,20 @@ export function AdminPage() {
       )}
       {seasonResetResult && (
         <SeasonResetResultModal result={seasonResetResult} onClose={() => setSeasonResetResult(null)} />
+      )}
+      {scenarioAutomationRunRequest && (
+        <ScenarioAutomationConfirmModal
+          mode={scenarioAutomationRunRequest}
+          autoApply={scenarioAutomationSettings?.autoApply ?? false}
+          onClose={() => setScenarioAutomationRunRequest(null)}
+          onConfirm={() => void runScenarioAutomation(scenarioAutomationRunRequest)}
+        />
+      )}
+      {scenarioAutomationResult && (
+        <ScenarioAutomationResultModal
+          result={scenarioAutomationResult}
+          onClose={() => setScenarioAutomationResult(null)}
+        />
       )}
     </div>
   );
@@ -656,19 +748,42 @@ function StocksSection({ rows, onAction }: { rows: Array<Array<ReactNode>>; onAc
   );
 }
 
-function AiSection({ aiAccounts, onAction }: { aiAccounts: RankingEntry[]; onAction: (message: string) => void }) {
+function AiSection({
+  aiAccounts,
+  markets,
+  onAction,
+}: {
+  aiAccounts: AdminAiAccount[];
+  markets: Market[];
+  onAction: (message: string) => void;
+}) {
+  const activeCount = aiAccounts.filter((account) => account.isActive).length;
+  const averageRisk = aiAccounts.reduce((sum, account) => sum + account.riskLevel, 0) / Math.max(aiAccounts.length, 1);
   return (
     <AdminWorkArea
       summary={[
         ['AI 계정', `${aiAccounts.length}개`],
-        ['평균 수익률', `${(aiAccounts.reduce((sum, entry) => sum + entry.returnRate, 0) / Math.max(aiAccounts.length, 1)).toFixed(1)}%`],
-        ['리밸런싱', '대기 1건'],
+        ['활성 계정', `${activeCount}개`],
+        ['평균 위험도', `${averageRisk.toFixed(1)} / 10`],
       ]}
-      actions={['AI 계정 추가', 'AI 계정 수정', 'AI 계정 삭제', 'AI 투자 성향 리밸런싱']}
+      actions={['AI 계정 추가', 'AI 계정 수정', 'AI 계정 비활성화', 'AI 투자 성향 리밸런싱']}
       onAction={onAction}
       formTitle="AI 계정 추가"
-      fields={['AI 계정 이름', '초기 자금', '투자 성향', '선호 장']}
-      table={{ columns: ['AI 계정', '선호 장', '총 자산', '수익률', '거래량'], rows: aiAccounts.map((entry) => [entry.name, entry.favoriteMarket ?? '랜덤', currency(entry.totalAssets), `${entry.returnRate.toFixed(1)}%`, compact(entry.tradeVolume)]) }}
+      fields={['AI 계정 이름', '투자 성향', '선호 장', '위험도 (1~10)', '초기 자금']}
+      table={{
+        columns: ['AI 계정', '투자 성향', '선호 장', '위험도', '현금', '총 자산', '상태'],
+        rows: aiAccounts.map((account) => [
+          account.nickname,
+          formatAiStrategy(account.strategyType),
+          account.preferredMarketIds.length
+            ? account.preferredMarketIds.map((id) => markets.find((market) => market.id === id)?.name ?? '삭제된 장').join(', ')
+            : '전체 시장',
+          `${account.riskLevel} / 10`,
+          currency(account.cash),
+          currency(account.totalAssetValue),
+          account.isActive ? '활성' : '비활성',
+        ]),
+      }}
     />
   );
 }
@@ -693,6 +808,9 @@ function ScenarioSection({ scenarioCount, rows, onAction }: { scenarioCount: num
 interface SimulationFormState {
   isEnabled: boolean;
   intervalMinutes: string;
+  randomIntervalEnabled: boolean;
+  minIntervalMinutes: string;
+  maxIntervalMinutes: string;
   minChangeRate: string;
   maxChangeRate: string;
   extremeMinRate: string;
@@ -728,23 +846,39 @@ function MarketSimulationSection({
     setForm((current) => ({ ...current, [name]: value }));
   };
 
+  const minInterval = Number(form.minIntervalMinutes);
+  const maxInterval = Number(form.maxIntervalMinutes);
+  const randomIntervalInvalid = form.randomIntervalEnabled && (
+    !Number.isFinite(minInterval)
+    || !Number.isFinite(maxInterval)
+    || minInterval < 1
+    || maxInterval > 1440
+    || minInterval > maxInterval
+  );
+
   const submitSettings = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextRunAt = form.nextRunAt ? new Date(form.nextRunAt).toISOString() : undefined;
     const targetStockCountValue = Number(form.targetStockCount);
     const targetStockCount = form.targetStockCount.trim() && Number.isFinite(targetStockCountValue)
       ? Math.max(1, Math.trunc(targetStockCountValue))
-      : null;
+      : undefined;
     void onSave({
       isEnabled: form.isEnabled,
-      intervalMinutes: Math.max(1, Math.trunc(safeNumber(form.intervalMinutes, 5))),
+      randomIntervalEnabled: form.randomIntervalEnabled,
+      ...(form.randomIntervalEnabled
+        ? {
+          minIntervalMinutes: clamp(Math.trunc(safeNumber(form.minIntervalMinutes, 5)), 1, 1440),
+          maxIntervalMinutes: clamp(Math.trunc(safeNumber(form.maxIntervalMinutes, 15)), 1, 1440),
+        }
+        : { intervalMinutes: clamp(Math.trunc(safeNumber(form.intervalMinutes, 5)), 1, 1440) }),
       minChangeRate: safeNumber(form.minChangeRate, -7),
       maxChangeRate: safeNumber(form.maxChangeRate, 7),
       extremeMinRate: safeNumber(form.extremeMinRate, -80),
       extremeMaxRate: safeNumber(form.extremeMaxRate, 300),
       extremeChance: clamp(safeNumber(form.extremeChance, 0.04), 0, 1),
       volatilityWeight: Math.max(0, safeNumber(form.volatilityWeight, 1)),
-      targetStockCount,
+      ...(targetStockCount ? { targetStockCount } : {}),
       ...(nextRunAt ? { nextRunAt } : {}),
     });
   };
@@ -770,14 +904,49 @@ function MarketSimulationSection({
           </span>
         </label>
 
-        <div className="simulation-form-grid">
-          <SimulationNumberField
-            label="실행 주기(분)"
-            value={form.intervalMinutes}
-            min={1}
-            step={1}
-            onChange={(value) => setField('intervalMinutes', value)}
+        <label className={form.randomIntervalEnabled ? 'simulation-toggle active' : 'simulation-toggle'}>
+          <input
+            type="checkbox"
+            checked={form.randomIntervalEnabled}
+            onChange={(event) => setField('randomIntervalEnabled', event.target.checked)}
           />
+          <span className="simulation-toggle-track"><i /></span>
+          <span>
+            <strong>{form.randomIntervalEnabled ? '랜덤 주기 ON' : '고정 주기 사용'}</strong>
+            <small>최소/최대 범위 안에서 다음 실행 주기를 매번 새로 정합니다.</small>
+          </span>
+        </label>
+
+        <div className="simulation-form-grid">
+          {form.randomIntervalEnabled ? (
+            <>
+              <SimulationNumberField
+                label="최소 실행 주기(분)"
+                value={form.minIntervalMinutes}
+                min={1}
+                max={1440}
+                step={1}
+                onChange={(value) => setField('minIntervalMinutes', value)}
+              />
+              <SimulationNumberField
+                label="최대 실행 주기(분)"
+                value={form.maxIntervalMinutes}
+                min={1}
+                max={1440}
+                step={1}
+                onChange={(value) => setField('maxIntervalMinutes', value)}
+              />
+            </>
+          ) : (
+            <SimulationNumberField
+              label="고정 실행 주기(분)"
+              value={form.intervalMinutes}
+              min={1}
+              max={1440}
+              step={1}
+              onChange={(value) => setField('intervalMinutes', value)}
+            />
+          )}
           <SimulationNumberField
             label="변동성 가중치"
             value={form.volatilityWeight}
@@ -815,6 +984,7 @@ function MarketSimulationSection({
             min={1}
             step={1}
             placeholder="전체 상장 종목"
+            required={false}
             onChange={(value) => setField('targetStockCount', value)}
           />
           <label className="field simulation-field">
@@ -850,13 +1020,17 @@ function MarketSimulationSection({
           </div>
         </label>
 
+        {randomIntervalInvalid && (
+          <p className="simulation-validation-error">최소 실행 주기는 최대 실행 주기보다 클 수 없습니다.</p>
+        )}
+
         <p className="simulation-note">서버가 깨어 있을 때 자동 실행됩니다. Render Free 환경에서는 sleep 상태일 때 스케줄러가 잠시 멈출 수 있습니다.</p>
 
         <div className="simulation-actions">
           <button className="secondary-button" type="button" onClick={() => void onRun()} disabled={isRunning || isSaving}>
             <RefreshCw size={17} /> {isRunning ? '실행 중' : '수동 실행'}
           </button>
-          <button className="primary-button" type="submit" disabled={isSaving || isRunning}>
+          <button className="primary-button" type="submit" disabled={isSaving || isRunning || randomIntervalInvalid}>
             <ShieldCheck size={17} /> {isSaving ? '저장 중' : '설정 저장'}
           </button>
         </div>
@@ -869,7 +1043,12 @@ function MarketSimulationSection({
         </div>
         <div className="admin-summary-list">
           <SummaryItem label="자동 실행" value={settings?.isEnabled ? '활성' : '비활성'} />
-          <SummaryItem label="실행 주기" value={`${settings?.intervalMinutes ?? 5}분`} />
+          <SummaryItem
+            label="실행 주기"
+            value={settings?.randomIntervalEnabled
+              ? `랜덤 ${settings.minIntervalMinutes}~${settings.maxIntervalMinutes}분`
+              : `고정 ${settings?.intervalMinutes ?? 5}분`}
+          />
           <SummaryItem label="일반 변동 범위" value={`${settings?.minChangeRate ?? -7}% ~ ${settings?.maxChangeRate ?? 7}%`} />
           <SummaryItem label="극단 변동 범위" value={`${settings?.extremeMinRate ?? -80}% ~ ${settings?.extremeMaxRate ?? 300}%`} />
           <SummaryItem label="극단 확률" value={`${((settings?.extremeChance ?? 0.04) * 100).toFixed(1)}%`} />
@@ -889,6 +1068,7 @@ function SimulationNumberField({
   max,
   step,
   placeholder,
+  required = true,
   onChange,
 }: {
   label: string;
@@ -897,6 +1077,7 @@ function SimulationNumberField({
   max?: number;
   step: number;
   placeholder?: string;
+  required?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
@@ -910,9 +1091,231 @@ function SimulationNumberField({
         step={step}
         value={value}
         placeholder={placeholder}
+        required={required}
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
+  );
+}
+
+interface ScenarioAutomationFormState {
+  isEnabled: boolean;
+  mainEnabled: boolean;
+  smallEnabled: boolean;
+  autoApply: boolean;
+  mainMinIntervalHours: string;
+  mainMaxIntervalHours: string;
+  smallMinIntervalMinutes: string;
+  smallMaxIntervalMinutes: string;
+  dailyMainLimit: string;
+  dailySmallLimit: string;
+  retryDelayMinutes: string;
+  nextMainRunAt: string;
+  nextSmallRunAt: string;
+}
+
+function ScenarioAutomationSection({
+  settings,
+  isSaving,
+  runningMode,
+  onSave,
+  onRequestRun,
+}: {
+  settings?: ScenarioAutomationSettings;
+  isSaving: boolean;
+  runningMode: ScenarioAutomationRunMode | null;
+  onSave: (values: AdminScenarioAutomationPayload) => void | Promise<void>;
+  onRequestRun: (mode: ScenarioAutomationRunMode) => void;
+}) {
+  const [form, setForm] = useState<ScenarioAutomationFormState>(() => buildScenarioAutomationFormState(settings));
+
+  useEffect(() => {
+    setForm(buildScenarioAutomationFormState(settings));
+  }, [settings]);
+
+  const setField = (name: keyof ScenarioAutomationFormState, value: string | boolean) => {
+    setForm((current) => ({ ...current, [name]: value }));
+  };
+  const mainRangeInvalid = isInvalidRange(form.mainMinIntervalHours, form.mainMaxIntervalHours, 1, 168);
+  const smallRangeInvalid = isInvalidRange(form.smallMinIntervalMinutes, form.smallMaxIntervalMinutes, 5, 10080);
+  const formInvalid = mainRangeInvalid || smallRangeInvalid;
+
+  const submitSettings = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (formInvalid) return;
+    const nextMainRunAt = form.nextMainRunAt ? new Date(form.nextMainRunAt).toISOString() : undefined;
+    const nextSmallRunAt = form.nextSmallRunAt ? new Date(form.nextSmallRunAt).toISOString() : undefined;
+    void onSave({
+      isEnabled: form.isEnabled,
+      mainEnabled: form.mainEnabled,
+      smallEnabled: form.smallEnabled,
+      autoApply: form.autoApply,
+      mainMinIntervalHours: boundedInteger(form.mainMinIntervalHours, 1, 168, 12),
+      mainMaxIntervalHours: boundedInteger(form.mainMaxIntervalHours, 1, 168, 24),
+      smallMinIntervalMinutes: boundedInteger(form.smallMinIntervalMinutes, 5, 10080, 120),
+      smallMaxIntervalMinutes: boundedInteger(form.smallMaxIntervalMinutes, 5, 10080, 240),
+      dailyMainLimit: boundedInteger(form.dailyMainLimit, 1, 24, 2),
+      dailySmallLimit: boundedInteger(form.dailySmallLimit, 1, 288, 12),
+      retryDelayMinutes: boundedInteger(form.retryDelayMinutes, 1, 1440, 15),
+      ...(nextMainRunAt ? { nextMainRunAt } : {}),
+      ...(nextSmallRunAt ? { nextSmallRunAt } : {}),
+    });
+  };
+
+  return (
+    <section className="simulation-grid automation-grid">
+      <form className="panel simulation-control-panel" onSubmit={submitSettings}>
+        <div className="panel-title">
+          <Workflow size={20} />
+          <h2>GPT 시나리오 자동화</h2>
+        </div>
+
+        <div className="automation-toggle-grid">
+          <AutomationToggle
+            checked={form.isEnabled}
+            title={form.isEnabled ? '전체 자동화 ON' : '전체 자동화 OFF'}
+            description="GPT 시나리오 스케줄러의 전체 동작을 제어합니다."
+            onChange={(checked) => setField('isEnabled', checked)}
+          />
+          <AutomationToggle
+            checked={form.autoApply}
+            title={form.autoApply ? '생성 후 자동 적용' : '생성만 수행'}
+            description="자동 적용 시 가격 변동과 AI 거래가 이어집니다."
+            onChange={(checked) => setField('autoApply', checked)}
+          />
+          <AutomationToggle
+            checked={form.mainEnabled}
+            title="MAIN 시나리오"
+            description="시장 전체 흐름을 만드는 메인 시나리오입니다."
+            onChange={(checked) => setField('mainEnabled', checked)}
+          />
+          <AutomationToggle
+            checked={form.smallEnabled}
+            title="SMALL 시나리오"
+            description="개별 종목 중심의 소규모 시나리오입니다."
+            onChange={(checked) => setField('smallEnabled', checked)}
+          />
+        </div>
+
+        <div className="automation-form-section">
+          <div className="automation-section-head">
+            <strong>MAIN 실행 정책</strong>
+            <span>{settings?.todayMainCount ?? 0} / {form.dailyMainLimit || '-'}회 사용</span>
+          </div>
+          <div className="simulation-form-grid">
+            <SimulationNumberField label="최소 주기(시간)" value={form.mainMinIntervalHours} min={1} max={168} step={1} onChange={(value) => setField('mainMinIntervalHours', value)} />
+            <SimulationNumberField label="최대 주기(시간)" value={form.mainMaxIntervalHours} min={1} max={168} step={1} onChange={(value) => setField('mainMaxIntervalHours', value)} />
+            <SimulationNumberField label="일일 생성 한도" value={form.dailyMainLimit} min={1} max={24} step={1} onChange={(value) => setField('dailyMainLimit', value)} />
+            <label className="field simulation-field">
+              <span>다음 MAIN 실행</span>
+              <input type="datetime-local" value={form.nextMainRunAt} onChange={(event) => setField('nextMainRunAt', event.target.value)} />
+            </label>
+          </div>
+          {mainRangeInvalid && <p className="simulation-validation-error">MAIN 최소 주기는 최대 주기보다 클 수 없으며 1~168시간이어야 합니다.</p>}
+        </div>
+
+        <div className="automation-form-section">
+          <div className="automation-section-head">
+            <strong>SMALL 실행 정책</strong>
+            <span>{settings?.todaySmallCount ?? 0} / {form.dailySmallLimit || '-'}회 사용</span>
+          </div>
+          <div className="simulation-form-grid">
+            <SimulationNumberField label="최소 주기(분)" value={form.smallMinIntervalMinutes} min={5} max={10080} step={1} onChange={(value) => setField('smallMinIntervalMinutes', value)} />
+            <SimulationNumberField label="최대 주기(분)" value={form.smallMaxIntervalMinutes} min={5} max={10080} step={1} onChange={(value) => setField('smallMaxIntervalMinutes', value)} />
+            <SimulationNumberField label="일일 생성 한도" value={form.dailySmallLimit} min={1} max={288} step={1} onChange={(value) => setField('dailySmallLimit', value)} />
+            <label className="field simulation-field">
+              <span>다음 SMALL 실행</span>
+              <input type="datetime-local" value={form.nextSmallRunAt} onChange={(event) => setField('nextSmallRunAt', event.target.value)} />
+            </label>
+          </div>
+          {smallRangeInvalid && <p className="simulation-validation-error">SMALL 최소 주기는 최대 주기보다 클 수 없으며 5~10,080분이어야 합니다.</p>}
+        </div>
+
+        <SimulationNumberField
+          label="실패 후 재시도 대기(분)"
+          value={form.retryDelayMinutes}
+          min={1}
+          max={1440}
+          step={1}
+          onChange={(value) => setField('retryDelayMinutes', value)}
+        />
+
+        <p className="simulation-note">자동 실행은 서버가 깨어 있을 때 동작합니다. 자동 적용을 켜면 생성된 시나리오가 즉시 가격과 AI 거래에 반영됩니다.</p>
+
+        <div className="simulation-actions">
+          <button className="primary-button" type="submit" disabled={isSaving || Boolean(runningMode) || formInvalid}>
+            <ShieldCheck size={17} /> {isSaving ? '저장 중' : '자동화 설정 저장'}
+          </button>
+        </div>
+      </form>
+
+      <article className="panel simulation-status-panel automation-status-panel">
+        <div className="panel-title">
+          <Activity size={20} />
+          <h2>스케줄러 상태</h2>
+        </div>
+        <div className="admin-summary-list">
+          <SummaryItem label="전체 자동화" value={settings?.isEnabled ? '활성' : '비활성'} />
+          <SummaryItem label="자동 적용" value={settings?.autoApply ? '활성' : '비활성'} />
+          <SummaryItem label="오늘 MAIN" value={`${settings?.todayMainCount ?? 0} / ${settings?.dailyMainLimit ?? 0}`} />
+          <SummaryItem label="오늘 SMALL" value={`${settings?.todaySmallCount ?? 0} / ${settings?.dailySmallLimit ?? 0}`} />
+          <SummaryItem label="최근 MAIN" value={formatOptionalDate(settings?.lastMainRunAt)} />
+          <SummaryItem label="다음 MAIN" value={formatOptionalDate(settings?.nextMainRunAt)} />
+          <SummaryItem label="최근 SMALL" value={formatOptionalDate(settings?.lastSmallRunAt)} />
+          <SummaryItem label="다음 SMALL" value={formatOptionalDate(settings?.nextSmallRunAt)} />
+          <SummaryItem label="서버 시각" value={formatOptionalDate(settings?.serverTime)} />
+        </div>
+
+        {(settings?.lastMainError || settings?.lastSmallError) && (
+          <div className="automation-error-list">
+            {settings.lastMainError && <AutomationError label="MAIN 최근 오류" message={settings.lastMainError} occurredAt={settings.lastMainErrorAt} />}
+            {settings.lastSmallError && <AutomationError label="SMALL 최근 오류" message={settings.lastSmallError} occurredAt={settings.lastSmallErrorAt} />}
+          </div>
+        )}
+
+        <div className="automation-run-actions">
+          <button className="secondary-button" type="button" disabled={Boolean(runningMode) || isSaving} onClick={() => onRequestRun('MAIN')}>
+            <Sparkles size={17} /> {runningMode === 'MAIN' ? 'MAIN 실행 중' : 'MAIN 즉시 실행'}
+          </button>
+          <button className="secondary-button" type="button" disabled={Boolean(runningMode) || isSaving} onClick={() => onRequestRun('SMALL')}>
+            <Sparkles size={17} /> {runningMode === 'SMALL' ? 'SMALL 실행 중' : 'SMALL 즉시 실행'}
+          </button>
+          <button className="ghost-button" type="button" disabled={Boolean(runningMode) || isSaving} onClick={() => onRequestRun('DUE')}>
+            <RefreshCw size={17} /> {runningMode === 'DUE' ? '도래 작업 확인 중' : '도래 작업 실행'}
+          </button>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function AutomationToggle({
+  checked,
+  title,
+  description,
+  onChange,
+}: {
+  checked: boolean;
+  title: string;
+  description: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className={checked ? 'simulation-toggle active' : 'simulation-toggle'}>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span className="simulation-toggle-track"><i /></span>
+      <span><strong>{title}</strong><small>{description}</small></span>
+    </label>
+  );
+}
+
+function AutomationError({ label, message, occurredAt }: { label: string; message: string; occurredAt?: string | null }) {
+  return (
+    <div className="automation-error">
+      <strong>{label}</strong>
+      <p>{message}</p>
+      {occurredAt && <small>{dateTime(occurredAt)}</small>}
+    </div>
   );
 }
 
@@ -1131,6 +1534,9 @@ function buildSimulationFormState(settings?: MarketSimulationSettings): Simulati
   return {
     isEnabled: settings?.isEnabled ?? false,
     intervalMinutes: String(settings?.intervalMinutes ?? 5),
+    randomIntervalEnabled: settings?.randomIntervalEnabled ?? false,
+    minIntervalMinutes: String(settings?.minIntervalMinutes ?? 5),
+    maxIntervalMinutes: String(settings?.maxIntervalMinutes ?? 15),
     minChangeRate: String(settings?.minChangeRate ?? -7),
     maxChangeRate: String(settings?.maxChangeRate ?? 7),
     extremeMinRate: String(settings?.extremeMinRate ?? -80),
@@ -1139,6 +1545,24 @@ function buildSimulationFormState(settings?: MarketSimulationSettings): Simulati
     volatilityWeight: String(settings?.volatilityWeight ?? 1),
     targetStockCount: settings?.targetStockCount ? String(settings.targetStockCount) : '',
     nextRunAt: toDateTimeLocal(settings?.nextRunAt),
+  };
+}
+
+function buildScenarioAutomationFormState(settings?: ScenarioAutomationSettings): ScenarioAutomationFormState {
+  return {
+    isEnabled: settings?.isEnabled ?? false,
+    mainEnabled: settings?.mainEnabled ?? true,
+    smallEnabled: settings?.smallEnabled ?? true,
+    autoApply: settings?.autoApply ?? false,
+    mainMinIntervalHours: String(settings?.mainMinIntervalHours ?? 12),
+    mainMaxIntervalHours: String(settings?.mainMaxIntervalHours ?? 24),
+    smallMinIntervalMinutes: String(settings?.smallMinIntervalMinutes ?? 120),
+    smallMaxIntervalMinutes: String(settings?.smallMaxIntervalMinutes ?? 240),
+    dailyMainLimit: String(settings?.dailyMainLimit ?? 2),
+    dailySmallLimit: String(settings?.dailySmallLimit ?? 12),
+    retryDelayMinutes: String(settings?.retryDelayMinutes ?? 15),
+    nextMainRunAt: toDateTimeLocal(settings?.nextMainRunAt),
+    nextSmallRunAt: toDateTimeLocal(settings?.nextSmallRunAt),
   };
 }
 
@@ -1158,6 +1582,20 @@ function clamp(value: number, min: number, max: number) {
 function safeNumber(value: string, fallback: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function boundedInteger(value: string, min: number, max: number, fallback: number) {
+  return clamp(Math.trunc(safeNumber(value, fallback)), min, max);
+}
+
+function isInvalidRange(minValue: string, maxValue: string, minimum: number, maximum: number) {
+  const min = Number(minValue);
+  const max = Number(maxValue);
+  return !Number.isFinite(min) || !Number.isFinite(max) || min < minimum || max > maximum || min > max;
+}
+
+function formatOptionalDate(value?: string | null) {
+  return value ? dateTime(value) : '-';
 }
 
 function ManagementTable({ columns, rows }: { columns: string[]; rows: Array<Array<ReactNode>> }) {
@@ -1194,6 +1632,139 @@ function OperationLog() {
       ))}
     </article>
   );
+}
+
+function wrapScenarioAutomationRunResult(result: ScenarioAutomationRunResult): ScenarioAutomationProcessResult {
+  return {
+    ok: result.status === 'COMPLETED',
+    status: 'PROCESSED',
+    checkedAt: result.completedAt ?? new Date().toISOString(),
+    results: [result],
+  };
+}
+
+function ScenarioAutomationConfirmModal({
+  mode,
+  autoApply,
+  onClose,
+  onConfirm,
+}: {
+  mode: ScenarioAutomationRunMode;
+  autoApply: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const label = mode === 'DUE' ? '도래한 자동화 작업' : `${mode} 시나리오`;
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scenario-automation-confirm-title">
+      <section className="modal automation-confirm-modal">
+        <div className="admin-request-head">
+          <div>
+            <span className="eyebrow">GPT Cost Confirmation</span>
+            <h3 id="scenario-automation-confirm-title">{label} 실행 확인</h3>
+            <p>이 작업은 GPT 호출 비용을 발생시키며 실행 상태와 일일 한도에 반영됩니다.</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="실행 취소"><X size={18} /></button>
+        </div>
+        <div className="danger-zone-note">
+          <strong>{autoApply ? '가격 변동 가능' : '시나리오 생성 모드'}</strong>
+          <p>
+            {autoApply
+              ? '자동 적용이 활성화되어 있습니다. 생성 성공 시 종목 가격, 조건 주문, AI 자동 거래와 랭킹이 즉시 변경될 수 있습니다.'
+              : '현재 자동 적용은 비활성화되어 있어 시나리오 생성까지만 수행합니다.'}
+          </p>
+        </div>
+        <div className="modal-actions">
+          <button className="ghost-button" type="button" onClick={onClose}>취소</button>
+          <button className="primary-button" type="button" onClick={onConfirm}><Sparkles size={17} /> 실행</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ScenarioAutomationResultModal({
+  result,
+  onClose,
+}: {
+  result: ScenarioAutomationProcessResult;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scenario-automation-result-title">
+      <section className="modal scenario-result-modal automation-result-modal">
+        <div className="admin-request-head">
+          <div>
+            <span className="eyebrow">Automation Result</span>
+            <h3 id="scenario-automation-result-title">GPT 자동 운영 실행 결과</h3>
+            <p>{formatAutomationProcessStatus(result.status)} · {formatOptionalDate(result.checkedAt)}</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="결과 닫기"><X size={18} /></button>
+        </div>
+
+        <div className="automation-result-list">
+          {result.results.length ? result.results.map((run, index) => (
+            <article className="scenario-result-section automation-result-item" key={`${run.type}-${run.completedAt ?? index}`}>
+              <div className="automation-result-head">
+                <strong>{run.type} 시나리오</strong>
+                <span className={`automation-status-pill ${automationStatusClass(run.status)}`}>{formatAutomationStatus(run.status)}</span>
+              </div>
+              {run.scenario && (
+                <div className="automation-result-scenario">
+                  <span>생성 시나리오</span>
+                  <strong>{run.scenario.title}</strong>
+                  <small>{run.scenario.description}</small>
+                </div>
+              )}
+              <div className="automation-result-meta">
+                <span>자동 적용 <strong>{run.autoApply ? 'ON' : 'OFF'}</strong></span>
+                <span>변동 종목 <strong>{run.application?.affectedStocks.length ?? 0}개</strong></span>
+                <span>조건 주문 <strong>{run.application?.conditionalOrderResults.length ?? 0}건</strong></span>
+                <span>AI 거래 <strong>{run.application?.aiTradeResults.length ?? 0}건</strong></span>
+              </div>
+              {run.applyError && <p className="automation-inline-error">적용 오류: {run.applyError}</p>}
+              <div className="automation-result-times">
+                <span>완료 {formatOptionalDate(run.completedAt)}</span>
+                <span>다음 실행 {formatOptionalDate(run.nextRunAt)}</span>
+              </div>
+            </article>
+          )) : (
+            <div className="empty-state">현재 실행할 도래 작업이 없습니다.</div>
+          )}
+        </div>
+
+        <div className="modal-actions">
+          <button className="primary-button" type="button" onClick={onClose}>확인</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function formatAutomationStatus(status: string) {
+  const labels: Record<string, string> = {
+    COMPLETED: '완료',
+    GENERATED_APPLY_FAILED: '생성 완료 · 적용 실패',
+    FAILED: '실패',
+    SKIPPED_ALREADY_RUNNING: '이미 실행 중',
+    SKIPPED_NOT_DUE: '실행 시각 전',
+    SKIPPED_LEASED: '다른 작업이 점유 중',
+    SKIPPED_DAILY_LIMIT: '일일 한도 도달',
+  };
+  return labels[status] ?? status;
+}
+
+function formatAutomationProcessStatus(status: string) {
+  if (status === 'DISABLED') return '자동화 비활성';
+  if (status === 'IDLE') return '실행 대상 없음';
+  if (status === 'PROCESSED') return '처리 완료';
+  return status;
+}
+
+function automationStatusClass(status: string) {
+  if (status === 'COMPLETED') return 'success';
+  if (status.startsWith('SKIPPED')) return 'skipped';
+  return 'failed';
 }
 
 function ScenarioApplyResultModal({
@@ -1319,7 +1890,12 @@ function MarketSimulationResultModal({
           </article>
         </div>
 
-        {result.nextRunAt && <p className="simulation-note">다음 자동 실행 예정: {dateTime(result.nextRunAt)}</p>}
+        {(result.nextRunAt || result.scheduledIntervalMinutes) && (
+          <p className="simulation-note">
+            {result.nextRunAt ? `다음 자동 실행 예정: ${dateTime(result.nextRunAt)}` : '다음 자동 실행 시각 미정'}
+            {result.scheduledIntervalMinutes ? ` · 예약 주기 ${result.scheduledIntervalMinutes}분` : ''}
+          </p>
+        )}
 
         <div className="modal-actions">
           <button className="primary-button" type="button" onClick={onClose}>확인</button>
@@ -1347,6 +1923,13 @@ function formatSimulationMode(mode?: string) {
   if (mode === 'EXTREME') return 'EXTREME';
   if (mode === 'NORMAL') return 'NORMAL';
   return mode ?? 'NORMAL';
+}
+
+function formatAiStrategy(strategy: AdminAiAccount['strategyType']) {
+  if (strategy === 'AGGRESSIVE') return '공격형';
+  if (strategy === 'STABLE') return '안정형';
+  if (strategy === 'MARKET_FOCUSED') return '특정 장 집중형';
+  return '랜덤형';
 }
 
 function SeasonResetResultModal({ result, onClose }: { result: SeasonResetResult; onClose: () => void }) {
@@ -1499,7 +2082,13 @@ function AdminActionFieldControl({ field }: { field: AdminActionField }) {
     return (
       <label className="field admin-request-field wide">
         <span>{field.label}</span>
-        <textarea name={field.name} placeholder={field.placeholder} defaultValue={field.defaultValue} />
+        <textarea
+          name={field.name}
+          placeholder={field.placeholder}
+          defaultValue={field.defaultValue}
+          required={field.required}
+          maxLength={field.maxLength}
+        />
       </label>
     );
   }
@@ -1508,6 +2097,10 @@ function AdminActionFieldControl({ field }: { field: AdminActionField }) {
     return (
       <AdminActionSelect field={field} />
     );
+  }
+
+  if (field.type === 'multiselect') {
+    return <AdminActionMultiSelect field={field} />;
   }
 
   if (field.type === 'number') {
@@ -1531,6 +2124,8 @@ function AdminActionFieldControl({ field }: { field: AdminActionField }) {
         type={field.type ?? 'text'}
         placeholder={field.placeholder}
         defaultValue={field.defaultValue}
+        required={field.required}
+        maxLength={field.maxLength}
       />
     </label>
   );
@@ -1538,11 +2133,12 @@ function AdminActionFieldControl({ field }: { field: AdminActionField }) {
 
 function AdminNumberInput({ field }: { field: AdminActionField }) {
   const [value, setValue] = useState(field.defaultValue ?? '');
-  const step = inferNumberStep(field.name);
+  const step = field.step ?? inferNumberStep(field.name);
 
   const nudge = (direction: 1 | -1) => {
     const current = Number(value || 0);
-    const next = Number.isFinite(current) ? current + step * direction : step * direction;
+    const candidate = Number.isFinite(current) ? current + step * direction : step * direction;
+    const next = Math.min(field.max ?? Number.POSITIVE_INFINITY, Math.max(field.min ?? Number.NEGATIVE_INFINITY, candidate));
     setValue(formatNumberStep(next, step));
   };
 
@@ -1558,8 +2154,11 @@ function AdminNumberInput({ field }: { field: AdminActionField }) {
           type="number"
           inputMode="decimal"
           step={step}
+          min={field.min}
+          max={field.max}
           placeholder={field.placeholder}
           value={value}
+          required={field.required}
           onChange={(event) => setValue(event.target.value)}
         />
         <button type="button" className="admin-number-button" onClick={() => nudge(1)} aria-label={`${field.label} 증가`}>
@@ -1623,6 +2222,70 @@ function AdminActionSelect({ field }: { field: AdminActionField }) {
   );
 }
 
+function AdminActionMultiSelect({ field }: { field: AdminActionField }) {
+  const options = useMemo(
+    () => (field.options ?? []).map(toSelectOption).filter((option) => option.value),
+    [field.options],
+  );
+  const [selected, setSelected] = useState<string[]>(() => parseSelectedValues(field.defaultValue));
+  const [open, setOpen] = useState(false);
+  const selectedLabels = selected
+    .map((value) => options.find((option) => option.value === value)?.label)
+    .filter(Boolean);
+
+  useEffect(() => {
+    setSelected((current) => current.filter((value) => options.some((option) => option.value === value)));
+  }, [options]);
+
+  const toggleOption = (value: string) => {
+    setSelected((current) => {
+      if (current.includes(value)) return current.filter((item) => item !== value);
+      if (field.maxItems && current.length >= field.maxItems) return current;
+      return [...current, value];
+    });
+  };
+
+  return (
+    <label className="field admin-request-field">
+      <span>{field.label}</span>
+      <input type="hidden" name={field.name} value={selected.join(',')} />
+      <div className={open ? 'admin-select admin-multiselect open' : 'admin-select admin-multiselect'}>
+        <button
+          type="button"
+          className="admin-select-trigger"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span>{selectedLabels.length ? selectedLabels.join(', ') : field.placeholder || '선택 없음'}</span>
+          <ChevronDown size={17} />
+        </button>
+        {open && (
+          <div className="admin-select-menu" role="listbox" aria-multiselectable="true">
+            {options.map((option) => {
+              const checked = selected.includes(option.value);
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={checked ? 'selected' : ''}
+                  role="option"
+                  aria-selected={checked}
+                  onClick={() => toggleOption(option.value)}
+                >
+                  <span>{option.label}</span>
+                  {checked && <Check size={16} />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {field.maxItems && <small className="field-hint">최대 {field.maxItems}개 · 현재 {selected.length}개 선택</small>}
+    </label>
+  );
+}
+
 function inferNumberStep(fieldName: string) {
   if (/rate|multiplier|growth|resetValue/i.test(fieldName)) return 0.1;
   if (/strength|risk|limit|order|count|duration|adjustment/i.test(fieldName)) return 1;
@@ -1664,8 +2327,8 @@ function getActionDescription(section: AdminSection, action: string) {
     '종목 비활성화': '특정 종목을 비상장 상태로 전환합니다.',
     '종목 상장폐지': '선택한 종목을 상장폐지하는 위험 작업입니다.',
     'AI 계정 추가': '랭킹에 참여할 AI 계정과 투자 성향을 생성합니다.',
-    'AI 계정 수정': '기존 AI 계정의 투자 성향, 위험도, 활성 상태를 조정합니다.',
-    'AI 계정 삭제': 'AI 계정을 삭제하는 위험 작업입니다.',
+    'AI 계정 수정': '기존 AI 계정의 이름, 투자 성향, 선호 장, 위험도와 초기 자금을 수정합니다.',
+    'AI 계정 비활성화': '계정 데이터는 유지하고 선택한 AI 계정의 운영을 비활성화합니다.',
     'AI 투자 성향 리밸런싱': '선택한 AI 계정의 자동 거래를 실행합니다.',
     '메인 시나리오 생성 요청': '시장 흐름에 영향을 주는 메인 시나리오 생성을 요청합니다.',
     'BIG 시나리오 생성 요청': '강한 가격 충격을 주는 BIG 시나리오 생성을 요청합니다.',
@@ -1684,7 +2347,7 @@ function getActionDescription(section: AdminSection, action: string) {
 
 const fallbackMarketOptions: AdminSelectOption[] = ['버츄얼 & 스트리머장', '가수장', '캐릭터장', '애니메이션장'];
 const fallbackStockOptions: AdminSelectOption[] = ['노바 린', '픽셀 민트', '루나 콰이어', '블루 아크 마스코트', '오리온 학원', '네온 아이돌즈'];
-const fallbackAiOptions: AdminSelectOption[] = ['ALPHA-팬덤퀀트', 'BETA-안정배당', '전체 AI 계정'];
+const fallbackAiOptions: AdminSelectOption[] = [blankSelectOption('AI 계정 데이터 없음')];
 const fallbackUserOptions: AdminSelectOption[] = ['플레이어01', '마루트레이더', '하루차트', '전체 사용자'];
 const fallbackScenarioOptions: AdminSelectOption[] = [blankSelectOption('적용 가능한 시나리오 없음')];
 const defaultActionOptions: AdminActionOptions = {
@@ -1697,6 +2360,10 @@ const defaultActionOptions: AdminActionOptions = {
 
 function toSelectOption(option: AdminSelectOption) {
   return typeof option === 'string' ? { label: option, value: option } : option;
+}
+
+function parseSelectedValues(value?: string) {
+  return value ? value.split(',').map((item) => item.trim()).filter(Boolean) : [];
 }
 
 function blankSelectOption(label: string): AdminSelectOption {
@@ -1723,12 +2390,12 @@ function buildStockOptions(stocks: Stock[], markets: Market[] = []): AdminSelect
     }));
 }
 
-function buildAiOptions(entries: RankingEntry[]): AdminSelectOption[] {
+function buildAiOptions(entries: AdminAiAccount[]): AdminSelectOption[] {
   if (!entries.length) return fallbackAiOptions;
   return [
     blankSelectOption('전체 AI 계정'),
     ...entries.map((entry) => ({
-      label: entry.name,
+      label: `${entry.nickname}${entry.isActive ? '' : ' (비활성)'}`,
       value: entry.id,
     })),
   ];
@@ -1852,26 +2519,68 @@ function getActionFields(
   if (section === 'ai') {
     if (action === 'AI 계정 추가') {
       return [
-        { name: 'aiName', label: 'AI 계정 이름', placeholder: '예: GAMMA-모멘텀' },
-        { name: 'initialCash', label: '초기 자금', type: 'number', placeholder: '10000000' },
-        { name: 'profile', label: '투자 성향', type: 'select', options: ['공격형', '안정형', '랜덤형', '특정 장 집중형'] },
-        { name: 'favoriteMarket', label: '선호 장', type: 'select', options: marketOptions },
-        { name: 'riskLevel', label: '위험도', type: 'number', placeholder: '50', defaultValue: '50' },
-        { name: 'active', label: '생성 즉시 랭킹 참여', type: 'checkbox', defaultValue: 'true' },
+        { name: 'nickname', label: 'AI 계정 이름', placeholder: '예: AI 공격형 1호', required: true, maxLength: 32 },
+        {
+          name: 'strategyType',
+          label: '투자 성향',
+          type: 'select',
+          options: [
+            { label: '공격형', value: 'AGGRESSIVE' },
+            { label: '안정형', value: 'STABLE' },
+            { label: '랜덤형', value: 'RANDOM' },
+            { label: '특정 장 집중형', value: 'MARKET_FOCUSED' },
+          ],
+          defaultValue: 'AGGRESSIVE',
+          required: true,
+        },
+        {
+          name: 'preferredMarketIds',
+          label: '선호 장 (복수 선택)',
+          type: 'multiselect',
+          options: marketOptions,
+          defaultValue: '',
+          maxItems: 20,
+          placeholder: '전체 시장 (선택 없음)',
+        },
+        { name: 'riskLevel', label: '위험도 (1~10)', type: 'number', defaultValue: '7', min: 1, max: 10, step: 1, required: true },
+        { name: 'initialCash', label: '초기 자금', type: 'number', defaultValue: '1000000', min: 0, step: 10000, required: true },
       ];
     }
     if (action === 'AI 계정 수정') {
       return [
         { name: 'targetAi', label: '수정할 AI', type: 'select', options: aiOptions },
-        { name: 'profile', label: '투자 성향', type: 'select', options: ['변경 없음', '공격형', '안정형', '랜덤형', '특정 장 집중형'] },
-        { name: 'riskLevel', label: '위험도', type: 'number', placeholder: '비워두면 유지' },
-        { name: 'activeState', label: '활성 상태', type: 'select', options: ['변경 없음', '활성', '비활성'] },
+        { name: 'nickname', label: '변경 이름', placeholder: '비워두면 유지', maxLength: 32 },
+        {
+          name: 'strategyType',
+          label: '투자 성향',
+          type: 'select',
+          options: [
+            blankSelectOption('변경 없음'),
+            { label: '공격형', value: 'AGGRESSIVE' },
+            { label: '안정형', value: 'STABLE' },
+            { label: '랜덤형', value: 'RANDOM' },
+            { label: '특정 장 집중형', value: 'MARKET_FOCUSED' },
+          ],
+          defaultValue: '',
+        },
+        {
+          name: 'preferredMarketIds',
+          label: '변경할 선호 장 (복수 선택)',
+          type: 'multiselect',
+          options: marketOptions,
+          defaultValue: '',
+          maxItems: 20,
+          placeholder: '선택하지 않으면 유지',
+        },
+        { name: 'clearPreferredMarkets', label: '선호 장 설정 초기화', type: 'checkbox' },
+        { name: 'riskLevel', label: '위험도 (1~10)', type: 'number', placeholder: '비워두면 유지', min: 1, max: 10, step: 1 },
+        { name: 'initialCash', label: '초기 자금', type: 'number', placeholder: '비워두면 유지', min: 0, step: 10000 },
       ];
     }
-    if (action === 'AI 계정 삭제') {
+    if (action === 'AI 계정 비활성화') {
       return [
-        { name: 'targetAi', label: '삭제할 AI', type: 'select', options: aiOptions.filter((option) => toSelectOption(option).label !== '전체 AI 계정') },
-        { name: 'confirmText', label: '확인 문구', placeholder: 'AI 삭제' },
+        { name: 'targetAi', label: '비활성화할 AI', type: 'select', options: aiOptions.filter((option) => Boolean(toSelectOption(option).value)) },
+        { name: 'confirmText', label: '확인 문구', placeholder: 'AI 비활성화' },
       ];
     }
     return [

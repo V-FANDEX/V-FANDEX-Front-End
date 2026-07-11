@@ -1,21 +1,30 @@
 import type { AdminSection } from '../types/admin';
 import type {
+  AdminAiAccount,
   AdminDashboard,
+  AiStrategyType,
   Market,
   MarketSimulationRunResult,
   MarketSimulationSettings,
   ScenarioApplyResult,
+  ScenarioAutomationProcessResult,
+  ScenarioAutomationRunResult,
+  ScenarioAutomationSettings,
   SeasonResetResult,
   Stock,
 } from '../types';
 import { apiClient, jsonBody, withQuery } from './apiClient';
 import {
+  mapAdminAiAccount,
   mapAdminDashboard,
   mapDividendSchedule,
   mapMarket,
   mapMarketSimulationRunResult,
   mapMarketSimulationSettings,
   mapScenarioApplyResult,
+  mapScenarioAutomationProcessResult,
+  mapScenarioAutomationRunResult,
+  mapScenarioAutomationSettings,
   mapSeasonResetResult,
   mapStock,
   toNumber,
@@ -57,14 +66,15 @@ export interface AdminStockPayload {
   isListed?: boolean;
 }
 
-export interface AdminAiPayload {
+export interface AdminAiCreatePayload {
   nickname: string;
-  strategyType: 'AGGRESSIVE' | 'STABLE' | 'RANDOM' | 'MARKET_FOCUSED';
+  strategyType: AiStrategyType;
   preferredMarketIds?: string[];
   riskLevel: number;
   initialCash?: number;
-  isActive?: boolean;
 }
+
+export type AdminAiUpdatePayload = Partial<AdminAiCreatePayload>;
 
 export interface AdminSeasonPayload {
   name: string;
@@ -77,14 +87,33 @@ export interface AdminSeasonPayload {
 export interface AdminMarketSimulationPayload {
   isEnabled?: boolean;
   intervalMinutes?: number;
+  randomIntervalEnabled?: boolean;
+  minIntervalMinutes?: number;
+  maxIntervalMinutes?: number;
   minChangeRate?: number;
   maxChangeRate?: number;
   extremeMinRate?: number;
   extremeMaxRate?: number;
   extremeChance?: number;
   volatilityWeight?: number;
-  targetStockCount?: number | null;
-  nextRunAt?: string | null;
+  targetStockCount?: number;
+  nextRunAt?: string;
+}
+
+export interface AdminScenarioAutomationPayload {
+  isEnabled?: boolean;
+  mainEnabled?: boolean;
+  smallEnabled?: boolean;
+  autoApply?: boolean;
+  mainMinIntervalHours?: number;
+  mainMaxIntervalHours?: number;
+  smallMinIntervalMinutes?: number;
+  smallMaxIntervalMinutes?: number;
+  dailyMainLimit?: number;
+  dailySmallLimit?: number;
+  retryDelayMinutes?: number;
+  nextMainRunAt?: string;
+  nextSmallRunAt?: string;
 }
 
 export const adminApi = {
@@ -101,8 +130,19 @@ export const adminApi = {
   runMarketSimulation: async (): Promise<MarketSimulationRunResult> =>
     mapMarketSimulationRunResult(await apiClient<unknown>('/admin/market-simulation/run', { method: 'POST' })),
 
+  getScenarioAutomationSettings: async (): Promise<ScenarioAutomationSettings> =>
+    mapScenarioAutomationSettings(await apiClient<unknown>('/admin/scenario-automation/settings')),
+  updateScenarioAutomationSettings: async (body: AdminScenarioAutomationPayload): Promise<ScenarioAutomationSettings> =>
+    mapScenarioAutomationSettings(await apiClient<unknown>('/admin/scenario-automation/settings', { method: 'PATCH', body: jsonBody(body) })),
+  runMainScenarioAutomation: async (): Promise<ScenarioAutomationRunResult> =>
+    mapScenarioAutomationRunResult(await apiClient<unknown>('/admin/scenario-automation/run-main', { method: 'POST' })),
+  runSmallScenarioAutomation: async (): Promise<ScenarioAutomationRunResult> =>
+    mapScenarioAutomationRunResult(await apiClient<unknown>('/admin/scenario-automation/run-small', { method: 'POST' })),
+  runDueScenarioAutomation: async (): Promise<ScenarioAutomationProcessResult> =>
+    mapScenarioAutomationProcessResult(await apiClient<unknown>('/admin/scenario-automation/run-due', { method: 'POST' })),
+
   getMarkets: async (params: { includeInactive?: boolean } = {}): Promise<Market[]> =>
-    (await apiClient<unknown[]>(withQuery('/admin/markets', { ...params }))).map((market, index) => mapMarket(market, [], index)),
+    (await apiClient<unknown[]>(withQuery('/admin/markets', { ...params }))).map((market, index) => mapMarket(market, undefined, index)),
   createMarket: (body: AdminMarketPayload) =>
     apiClient<unknown>('/admin/markets', { method: 'POST', body: jsonBody(body) }),
   updateMarket: (id: string, body: Partial<AdminMarketPayload>) =>
@@ -129,12 +169,16 @@ export const adminApi = {
   applyScenario: async (id: string): Promise<ScenarioApplyResult> =>
     mapScenarioApplyResult(await apiClient<unknown>(`/admin/scenarios/${id}/apply`, { method: 'POST' })),
 
-  getAiAccounts: () => apiClient<unknown>('/admin/ai-accounts'),
-  createAiAccount: (body: AdminAiPayload) =>
-    apiClient<unknown>('/admin/ai-accounts', { method: 'POST', body: jsonBody(body) }),
-  updateAiAccount: (id: string, body: Partial<AdminAiPayload>) =>
-    apiClient<unknown>(`/admin/ai-accounts/${id}`, { method: 'PATCH', body: jsonBody(body) }),
-  deleteAiAccount: (id: string) => apiClient<unknown>(`/admin/ai-accounts/${id}`, { method: 'DELETE' }),
+  getAiAccounts: async (): Promise<AdminAiAccount[]> => {
+    const data = await apiClient<unknown>('/admin/ai-accounts');
+    return (Array.isArray(data) ? data : []).map(mapAdminAiAccount);
+  },
+  createAiAccount: async (body: AdminAiCreatePayload): Promise<AdminAiAccount> =>
+    mapAdminAiAccount(await apiClient<unknown>('/admin/ai-accounts', { method: 'POST', body: jsonBody(body) })),
+  updateAiAccount: async (id: string, body: AdminAiUpdatePayload): Promise<AdminAiAccount> =>
+    mapAdminAiAccount(await apiClient<unknown>(`/admin/ai-accounts/${id}`, { method: 'PATCH', body: jsonBody(body) })),
+  deleteAiAccount: async (id: string): Promise<AdminAiAccount> =>
+    mapAdminAiAccount(await apiClient<unknown>(`/admin/ai-accounts/${id}`, { method: 'DELETE' })),
   runAiTrade: (id: string) => apiClient<unknown>(`/admin/ai-accounts/${id}/run-trade`, { method: 'POST' }),
 
   getSeasons: () => apiClient<unknown>('/seasons'),
@@ -243,31 +287,41 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
 
   if (section === 'ai') {
     if (action === 'AI 계정 추가') {
+      const nickname = requiredText(firstFilled(values.nickname, values.aiName), 'AI 계정 이름', 32);
+      const riskLevel = requiredNumber(values.riskLevel ?? values.riskLimit, '위험도', { min: 1, max: 10, integer: true });
+      const initialCash = requiredNumber(values.initialCash, '초기 자금', { min: 0, integer: true });
       return adminApi.createAiAccount({
-        nickname: String(values.aiName || ''),
-        strategyType: parseStrategy(values.profile),
-        preferredMarketIds: firstFilled(values.preferredMarketIds, values.favoriteMarket)
-          ?.split(',')
-          .map((id) => id.trim())
-          .filter(Boolean),
-        riskLevel: toNumber(values.riskLevel ?? values.riskLimit, 50),
-        initialCash: optionalNumber(values.initialCash),
-        isActive: values.active !== false,
+        nickname,
+        strategyType: parseStrategy(firstFilled(values.strategyType, values.profile)),
+        preferredMarketIds: parseIdList(firstFilled(values.preferredMarketIds, values.favoriteMarket)),
+        riskLevel,
+        initialCash,
       });
     }
     if (action === 'AI 투자 성향 리밸런싱') {
       return adminApi.runAiTrade(requiredId(firstFilled(values.aiAccountId, values.targetAi), 'AI 계정'));
     }
-    if (action === 'AI 계정 삭제') {
-      requireConfirm(values.confirmText, 'AI 삭제');
-      return adminApi.deleteAiAccount(requiredId(firstFilled(values.aiAccountId, values.targetAi), '삭제할 AI 계정'));
+    if (action === 'AI 계정 비활성화' || action === 'AI 계정 삭제') {
+      requireConfirm(values.confirmText, action === 'AI 계정 비활성화' ? 'AI 비활성화' : 'AI 삭제');
+      return adminApi.deleteAiAccount(requiredId(firstFilled(values.aiAccountId, values.targetAi), '비활성화할 AI 계정'));
     }
     if (action === 'AI 계정 수정') {
-      return adminApi.updateAiAccount(requiredId(firstFilled(values.aiAccountId, values.targetAi), '수정할 AI 계정'), {
-        strategyType: parseOptionalStrategy(values.profile),
-        riskLevel: optionalNumber(values.riskLevel ?? values.cashLimit),
-        isActive: parseActiveState(values.activeState),
-      });
+      const nickname = optionalString(values.nickname);
+      if (nickname && nickname.length > 32) throw new Error('AI 계정 이름은 32자 이하로 입력해주세요.');
+      const preferredMarketValue = optionalString(values.preferredMarketIds);
+      const body: AdminAiUpdatePayload = {
+        nickname,
+        strategyType: parseOptionalStrategy(values.strategyType ?? values.profile),
+        preferredMarketIds: values.clearPreferredMarkets === true
+          ? []
+          : preferredMarketValue
+            ? parseIdList(preferredMarketValue)
+            : undefined,
+        riskLevel: optionalValidatedNumber(values.riskLevel, '위험도', { min: 1, max: 10, integer: true }),
+        initialCash: optionalValidatedNumber(values.initialCash, '초기 자금', { min: 0, integer: true }),
+      };
+      if (Object.values(body).every((value) => value === undefined)) throw new Error('수정할 값을 하나 이상 입력해주세요.');
+      return adminApi.updateAiAccount(requiredId(firstFilled(values.aiAccountId, values.targetAi), '수정할 AI 계정'), body);
     }
   }
 
@@ -368,10 +422,46 @@ function optionalNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function optionalValidatedNumber(
+  value: unknown,
+  label: string,
+  constraints: { min?: number; max?: number; integer?: boolean } = {},
+) {
+  if (!optionalString(value)) return undefined;
+  return requiredNumber(value, label, constraints);
+}
+
 function requiredId(value: unknown, label: string) {
   const id = optionalString(value);
   if (!id) throw new Error(`${label}를 입력해주세요.`);
   return id;
+}
+
+function requiredText(value: unknown, label: string, maxLength?: number) {
+  const text = optionalString(value);
+  if (!text) throw new Error(`${label} 값을 입력해주세요.`);
+  if (maxLength && text.length > maxLength) throw new Error(`${label}은 ${maxLength}자 이하로 입력해주세요.`);
+  return text;
+}
+
+function requiredNumber(
+  value: unknown,
+  label: string,
+  constraints: { min?: number; max?: number; integer?: boolean } = {},
+) {
+  const parsed = Number(value);
+  if (!optionalString(value) || !Number.isFinite(parsed)) throw new Error(`${label} 값을 숫자로 입력해주세요.`);
+  if (constraints.integer && !Number.isInteger(parsed)) throw new Error(`${label} 값은 정수여야 합니다.`);
+  if (constraints.min !== undefined && parsed < constraints.min) throw new Error(`${label} 값은 ${constraints.min} 이상이어야 합니다.`);
+  if (constraints.max !== undefined && parsed > constraints.max) throw new Error(`${label} 값은 ${constraints.max} 이하여야 합니다.`);
+  return parsed;
+}
+
+function parseIdList(value: unknown) {
+  return String(value ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
 }
 
 function requireConfirm(value: unknown, phrase: string) {
@@ -395,8 +485,9 @@ function parseActiveState(value: unknown) {
   return undefined;
 }
 
-function parseStrategy(value: unknown): AdminAiPayload['strategyType'] {
-  const text = String(value ?? '');
+function parseStrategy(value: unknown): AdminAiCreatePayload['strategyType'] {
+  const text = String(value ?? '').toUpperCase();
+  if (text === 'AGGRESSIVE' || text === 'STABLE' || text === 'RANDOM' || text === 'MARKET_FOCUSED') return text;
   if (text.includes('공격')) return 'AGGRESSIVE';
   if (text.includes('안정')) return 'STABLE';
   if (text.includes('집중')) return 'MARKET_FOCUSED';

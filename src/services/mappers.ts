@@ -1,5 +1,6 @@
 import type {
   ConditionalOrder,
+  AdminAiAccount,
   AdminDashboard,
   DividendSchedule,
   Holding,
@@ -16,6 +17,9 @@ import type {
   StockChartPoint,
   StockChartInterval,
   ScenarioApplyResult,
+  ScenarioAutomationProcessResult,
+  ScenarioAutomationRunResult,
+  ScenarioAutomationSettings,
   Transaction,
   UserAccount,
 } from '../types';
@@ -62,6 +66,25 @@ export function mapUser(raw: unknown, extras?: Partial<UserAccount>): UserAccoun
   };
 }
 
+export function mapAdminAiAccount(raw: unknown): AdminAiAccount {
+  const source = asRecord(raw);
+  return {
+    id: String(source.id ?? ''),
+    userId: String(source.userId ?? asRecord(source.user).id ?? ''),
+    strategyType: normalizeAiStrategy(source.strategyType),
+    preferredMarketIds: normalizeStringArray(source.preferredMarketIds),
+    riskLevel: toNumber(source.riskLevel),
+    isActive: Boolean(source.isActive ?? source.status === 'ACTIVE'),
+    nickname: String(source.nickname ?? asRecord(source.user).nickname ?? 'AI 계정'),
+    cash: toNumber(source.cash ?? asRecord(source.user).cash),
+    totalAssetValue: toNumber(source.totalAssetValue ?? asRecord(source.user).totalAssetValue),
+    status: normalizeAiStatus(source.status, source.isActive),
+    createdAt: String(source.createdAt ?? ''),
+    updatedAt: String(source.updatedAt ?? ''),
+    user: source.user ? mapUser(source.user) : undefined,
+  };
+}
+
 export function mapPortfolio(raw: unknown) {
   const source = asRecord(raw);
   const holdings = Array.isArray(source.holdings) ? source.holdings.map(mapHolding) : [];
@@ -83,25 +106,37 @@ export function mapHolding(raw: unknown): Holding {
   };
 }
 
-export function mapMarket(raw: unknown, stocks: Stock[] = [], index = 0): Market {
+export function mapMarket(raw: unknown, stocks?: Stock[], index = 0): Market {
   const source = asRecord(raw);
   const id = String(source.id ?? source.marketId ?? '');
-  const marketStocks = stocks.filter((stock) => stock.marketId === id);
+  const marketStocks = stocks?.filter((stock) => stock.marketId === id) ?? [];
+  const sourceCount = asRecord(source._count);
   const marketCap = marketStocks.reduce((sum, stock) => sum + stock.marketCap, 0);
   const volume = marketStocks.reduce((sum, stock) => sum + stock.volume, 0);
-  const changeRate = marketStocks.length
+  const previousMarketCap = marketStocks.reduce((sum, stock) => {
+    const circulatingSupply = stock.circulatingSupply
+      ?? (stock.price > 0 ? stock.marketCap / stock.price : 0);
+    return sum + stock.previousClose * circulatingSupply;
+  }, 0);
+  const averageChangeRate = marketStocks.length
     ? marketStocks.reduce((sum, stock) => sum + stock.changeRate, 0) / marketStocks.length
-    : toNumber(source.changeRate ?? source.todayChangeRate);
+    : 0;
+  const changeRate = previousMarketCap > 0
+    ? ((marketCap - previousMarketCap) / previousMarketCap) * 100
+    : marketStocks.length
+      ? averageChangeRate
+      : toNumber(source.changeRate ?? source.todayChangeRate);
+  const hasStockMetrics = marketStocks.length > 0;
 
   return {
     id,
     name: String(source.name ?? '미분류 장'),
     description: String(source.description ?? '운영자가 등록한 가상 팬덤 시장입니다.'),
     icon: String(source.icon ?? source.iconUrl ?? defaultMarketIcons[index % defaultMarketIcons.length]),
-    stockCount: toNumber(source.stockCount, marketStocks.length),
-    marketCap: toNumber(source.marketCap, marketCap),
+    stockCount: Math.max(toNumber(source.stockCount ?? sourceCount.stocks), marketStocks.length),
+    marketCap: hasStockMetrics ? marketCap : toNumber(source.marketCap),
     changeRate,
-    volume: toNumber(source.volume, volume),
+    volume: hasStockMetrics ? volume : toNumber(source.volume),
     active: Boolean(source.isActive ?? source.active ?? true),
     sortOrder: toNumber(source.sortOrder, index),
   };
@@ -458,6 +493,9 @@ export function mapMarketSimulationSettings(raw: unknown): MarketSimulationSetti
     id: String(source.id ?? 'default'),
     isEnabled: Boolean(source.isEnabled ?? false),
     intervalMinutes: toNumber(source.intervalMinutes, 5),
+    randomIntervalEnabled: Boolean(source.randomIntervalEnabled ?? false),
+    minIntervalMinutes: toNumber(source.minIntervalMinutes, 5),
+    maxIntervalMinutes: toNumber(source.maxIntervalMinutes, 15),
     minChangeRate: toNumber(source.minChangeRate, -7),
     maxChangeRate: toNumber(source.maxChangeRate, 7),
     extremeMinRate: toNumber(source.extremeMinRate, -80),
@@ -512,6 +550,63 @@ export function mapMarketSimulationRunResult(raw: unknown): MarketSimulationRunR
       };
     }),
     nextRunAt: source.nextRunAt ? String(source.nextRunAt) : null,
+    scheduledIntervalMinutes: source.scheduledIntervalMinutes === null || source.scheduledIntervalMinutes === undefined
+      ? null
+      : toNumber(source.scheduledIntervalMinutes),
+  };
+}
+
+export function mapScenarioAutomationSettings(raw: unknown): ScenarioAutomationSettings {
+  const source = asRecord(raw);
+  return {
+    id: String(source.id ?? 'default'),
+    isEnabled: Boolean(source.isEnabled ?? false),
+    mainEnabled: Boolean(source.mainEnabled ?? false),
+    smallEnabled: Boolean(source.smallEnabled ?? false),
+    autoApply: Boolean(source.autoApply ?? false),
+    mainMinIntervalHours: toNumber(source.mainMinIntervalHours, 12),
+    mainMaxIntervalHours: toNumber(source.mainMaxIntervalHours, 24),
+    smallMinIntervalMinutes: toNumber(source.smallMinIntervalMinutes, 120),
+    smallMaxIntervalMinutes: toNumber(source.smallMaxIntervalMinutes, 240),
+    dailyMainLimit: toNumber(source.dailyMainLimit, 2),
+    dailySmallLimit: toNumber(source.dailySmallLimit, 12),
+    retryDelayMinutes: toNumber(source.retryDelayMinutes, 15),
+    lastMainRunAt: nullableString(source.lastMainRunAt),
+    nextMainRunAt: nullableString(source.nextMainRunAt),
+    lastSmallRunAt: nullableString(source.lastSmallRunAt),
+    nextSmallRunAt: nullableString(source.nextSmallRunAt),
+    lastMainError: nullableError(source.lastMainError),
+    lastMainErrorAt: nullableString(source.lastMainErrorAt),
+    lastSmallError: nullableError(source.lastSmallError),
+    lastSmallErrorAt: nullableString(source.lastSmallErrorAt),
+    todayMainCount: toNumber(source.todayMainCount),
+    todaySmallCount: toNumber(source.todaySmallCount),
+    serverTime: String(source.serverTime ?? ''),
+    updatedAt: String(source.updatedAt ?? ''),
+  };
+}
+
+export function mapScenarioAutomationRunResult(raw: unknown): ScenarioAutomationRunResult {
+  const source = asRecord(raw);
+  return {
+    type: String(source.type ?? 'MAIN').toUpperCase() === 'SMALL' ? 'SMALL' : 'MAIN',
+    status: String(source.status ?? 'FAILED') as ScenarioAutomationRunResult['status'],
+    scenario: source.scenario ? mapScenario(source.scenario) : undefined,
+    autoApply: source.autoApply === undefined ? undefined : Boolean(source.autoApply),
+    application: source.application ? mapScenarioApplyResult(source.application) : null,
+    applyError: nullableError(source.applyError),
+    completedAt: source.completedAt ? String(source.completedAt) : undefined,
+    nextRunAt: source.nextRunAt ? String(source.nextRunAt) : undefined,
+  };
+}
+
+export function mapScenarioAutomationProcessResult(raw: unknown): ScenarioAutomationProcessResult {
+  const source = asRecord(raw);
+  return {
+    ok: Boolean(source.ok ?? false),
+    status: String(source.status ?? 'IDLE'),
+    checkedAt: String(source.checkedAt ?? new Date().toISOString()),
+    results: listFromRecord(source.results).map(mapScenarioAutomationRunResult),
   };
 }
 
@@ -521,6 +616,34 @@ function asRecord(value: unknown): AnyRecord {
 
 function listFromRecord(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function normalizeAiStrategy(value: unknown): AdminAiAccount['strategyType'] {
+  const strategy = String(value ?? 'RANDOM').toUpperCase();
+  if (strategy === 'AGGRESSIVE' || strategy === 'STABLE' || strategy === 'MARKET_FOCUSED') return strategy;
+  return 'RANDOM';
+}
+
+function normalizeAiStatus(status: unknown, isActive: unknown): AdminAiAccount['status'] {
+  if (String(status ?? '').toUpperCase() === 'INACTIVE' || isActive === false) return 'INACTIVE';
+  return 'ACTIVE';
+}
+
+function nullableString(value: unknown) {
+  return value === null || value === undefined || value === '' ? null : String(value);
+}
+
+function nullableError(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'string') return value;
+  const source = asRecord(value);
+  if (Array.isArray(source.message)) return source.message.map(String).join(', ');
+  if (typeof source.message === 'string') return source.message;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function normalizeTags(value: unknown) {

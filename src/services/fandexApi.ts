@@ -53,9 +53,9 @@ export const fandexApi = {
     return apiClient<{ status: string; service: string; timestamp: string }>('/health');
   },
 
-  async getMarkets(stocks: Stock[] = []) {
+  async getMarkets(stocks?: Stock[]) {
     const markets = listFrom(await apiClient<unknown>('/markets')).map((item, index) => mapMarket(item, stocks, index));
-    return enrichMarkets(markets, stocks);
+    return stocks ? enrichMarkets(markets, stocks) : markets.sort((a, b) => a.sortOrder - b.sortOrder);
   },
 
   async getStocks(params: StockQuery = {}) {

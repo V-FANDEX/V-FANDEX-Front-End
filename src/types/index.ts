@@ -4,6 +4,7 @@ export type Role = 'user' | 'admin' | 'ai';
 export type RiskProfile = 'aggressive' | 'stable' | 'random' | 'focused';
 export type StockStatus = 'LISTED' | 'SUSPENDED' | 'UNLISTED' | string;
 export type StockChartInterval = 'day' | 'hour' | 'minute';
+export type AiStrategyType = 'AGGRESSIVE' | 'STABLE' | 'RANDOM' | 'MARKET_FOCUSED';
 
 export interface Market {
   id: MarketCategory;
@@ -195,6 +196,22 @@ export interface AdminDashboard {
   marketVolumeSeries: AdminMarketVolumePoint[];
 }
 
+export interface AdminAiAccount {
+  id: string;
+  userId: string;
+  strategyType: AiStrategyType;
+  preferredMarketIds: string[];
+  riskLevel: number;
+  isActive: boolean;
+  nickname: string;
+  cash: number;
+  totalAssetValue: number;
+  status: 'ACTIVE' | 'INACTIVE';
+  createdAt: string;
+  updatedAt: string;
+  user?: UserAccount;
+}
+
 export interface SeasonResetResult {
   seasonId: string;
   resetMode: 'SEED_CATALOG_ONLY' | string;
@@ -264,6 +281,9 @@ export interface MarketSimulationSettings {
   id: string;
   isEnabled: boolean;
   intervalMinutes: number;
+  randomIntervalEnabled: boolean;
+  minIntervalMinutes: number;
+  maxIntervalMinutes: number;
   minChangeRate: number;
   maxChangeRate: number;
   extremeMinRate: number;
@@ -290,9 +310,64 @@ export interface MarketSimulationAffectedStock {
 
 export interface MarketSimulationRunResult {
   ok: boolean;
-  mode: 'MANUAL' | 'AUTO' | string;
+  mode: 'MANUAL' | 'SCHEDULED' | string;
   affectedCount: number;
   affectedStocks: MarketSimulationAffectedStock[];
   conditionalOrderResults: ScenarioConditionalOrderResult[];
   nextRunAt?: string | null;
+  scheduledIntervalMinutes?: number | null;
+}
+
+export type ScenarioAutomationRunStatus =
+  | 'COMPLETED'
+  | 'GENERATED_APPLY_FAILED'
+  | 'FAILED'
+  | 'SKIPPED_ALREADY_RUNNING'
+  | 'SKIPPED_NOT_DUE'
+  | 'SKIPPED_LEASED'
+  | 'SKIPPED_DAILY_LIMIT';
+
+export interface ScenarioAutomationSettings {
+  id: string;
+  isEnabled: boolean;
+  mainEnabled: boolean;
+  smallEnabled: boolean;
+  autoApply: boolean;
+  mainMinIntervalHours: number;
+  mainMaxIntervalHours: number;
+  smallMinIntervalMinutes: number;
+  smallMaxIntervalMinutes: number;
+  dailyMainLimit: number;
+  dailySmallLimit: number;
+  retryDelayMinutes: number;
+  lastMainRunAt?: string | null;
+  nextMainRunAt?: string | null;
+  lastSmallRunAt?: string | null;
+  nextSmallRunAt?: string | null;
+  lastMainError?: string | null;
+  lastMainErrorAt?: string | null;
+  lastSmallError?: string | null;
+  lastSmallErrorAt?: string | null;
+  todayMainCount: number;
+  todaySmallCount: number;
+  serverTime: string;
+  updatedAt: string;
+}
+
+export interface ScenarioAutomationRunResult {
+  type: 'MAIN' | 'SMALL';
+  status: ScenarioAutomationRunStatus;
+  scenario?: ScenarioLog;
+  autoApply?: boolean;
+  application?: ScenarioApplyResult | null;
+  applyError?: string | null;
+  completedAt?: string;
+  nextRunAt?: string;
+}
+
+export interface ScenarioAutomationProcessResult {
+  ok: boolean;
+  status: 'DISABLED' | 'IDLE' | 'PROCESSED' | string;
+  checkedAt: string;
+  results: ScenarioAutomationRunResult[];
 }

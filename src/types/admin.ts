@@ -5,6 +5,7 @@ export type AdminSection =
   | 'stocks'
   | 'ai'
   | 'scenarios'
+  | 'scenarioAutomation'
   | 'simulation'
   | 'dividends'
   | 'users';

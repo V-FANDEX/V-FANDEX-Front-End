@@ -5,6 +5,7 @@ export type RiskProfile = 'aggressive' | 'stable' | 'random' | 'focused';
 export type StockStatus = 'LISTED' | 'SUSPENDED' | 'UNLISTED' | string;
 export type StockChartInterval = 'day' | 'hour' | 'minute';
 export type AiStrategyType = 'AGGRESSIVE' | 'STABLE' | 'RANDOM' | 'MARKET_FOCUSED';
+export type SeedSource = 'FILE' | 'ADMIN' | null;
 
 export interface Market {
   id: MarketCategory;
@@ -25,6 +26,7 @@ export interface Stock {
   market?: Market;
   name: string;
   symbol: string;
+  initialPrice: number;
   price: number;
   previousClose: number;
   changeRate: number;
@@ -43,6 +45,9 @@ export interface Stock {
   metadata: Record<string, string>;
   totalSupply?: number;
   circulatingSupply?: number;
+  seedSource: SeedSource;
+  seedPrice: number | null;
+  seededAt: string | null;
 }
 
 export interface Holding {
@@ -229,6 +234,8 @@ export interface SeasonResetResult {
   nonSeedMarketsDeleted: number;
   seedMarketsApplied: number;
   seedStocksApplied: number;
+  adminSeedMarketsPreserved: number;
+  adminSeedStocksRestored: number;
   seedPriceHistoriesCreated: number;
 }
 

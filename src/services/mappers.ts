@@ -172,6 +172,7 @@ export function mapStock(raw: unknown): Stock {
     market,
     name: String(source.name ?? '이름 없는 종목'),
     symbol: String(source.symbol ?? createSymbol(String(source.name ?? source.id ?? 'VF'))),
+    initialPrice: toNumber(source.initialPrice, currentPrice),
     price: currentPrice,
     previousClose,
     changeRate,
@@ -189,6 +190,9 @@ export function mapStock(raw: unknown): Stock {
     isTradingSuspended: Boolean(source.isTradingSuspended ?? false),
     totalSupply,
     circulatingSupply,
+    seedSource: normalizeSeedSource(source.seedSource),
+    seedPrice: source.seedPrice === null || source.seedPrice === undefined ? null : toNumber(source.seedPrice),
+    seededAt: source.seededAt ? String(source.seededAt) : null,
     metadata: normalizeMetadata(source.metadata, {
       상장상태: normalizeStockStatus(source.status, source.isListed, source.isTradingSuspended),
       변동성: String(source.volatilityLevel ?? source.volatility ?? '-'),
@@ -426,6 +430,8 @@ export function mapSeasonResetResult(raw: unknown): SeasonResetResult {
     nonSeedMarketsDeleted: toNumber(source.nonSeedMarketsDeleted),
     seedMarketsApplied: toNumber(source.seedMarketsApplied),
     seedStocksApplied: toNumber(source.seedStocksApplied),
+    adminSeedMarketsPreserved: toNumber(source.adminSeedMarketsPreserved),
+    adminSeedStocksRestored: toNumber(source.adminSeedStocksRestored),
     seedPriceHistoriesCreated: toNumber(source.seedPriceHistoriesCreated),
   };
 }
@@ -691,6 +697,12 @@ function normalizeStockStatus(status: unknown, isListed: unknown, isTradingSuspe
   if (normalized === 'LISTED' || normalized === 'SUSPENDED' || normalized === 'UNLISTED') return normalized;
   if (isTradingSuspended) return 'SUSPENDED';
   return isListed === false ? 'UNLISTED' : 'LISTED';
+}
+
+function normalizeSeedSource(value: unknown): Stock['seedSource'] {
+  const source = String(value ?? '').toUpperCase();
+  if (source === 'FILE' || source === 'ADMIN') return source;
+  return null;
 }
 
 function normalizeChartInterval(value: unknown): StockChartInterval | undefined {

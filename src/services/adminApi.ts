@@ -66,6 +66,16 @@ export interface AdminStockPayload {
   isListed?: boolean;
 }
 
+export interface SaveStockToSeedPayload {
+  seedPrice?: number;
+}
+
+export interface AdminStockCreationResult {
+  stock: Stock;
+  seedSaved: boolean | null;
+  seedSaveError?: string;
+}
+
 export interface AdminAiCreatePayload {
   nickname: string;
   strategyType: AiStrategyType;
@@ -151,12 +161,14 @@ export const adminApi = {
 
   getStocks: async (params: { includeUnlisted?: boolean; marketId?: string; search?: string } = {}): Promise<Stock[]> =>
     (await apiClient<unknown[]>(withQuery('/admin/stocks', { ...params }))).map(mapStock),
-  createStock: (body: AdminStockPayload) =>
-    apiClient<unknown>('/admin/stocks', { method: 'POST', body: jsonBody(body) }),
-  updateStock: (id: string, body: Partial<AdminStockPayload>) =>
-    apiClient<unknown>(`/admin/stocks/${id}`, { method: 'PATCH', body: jsonBody(body) }),
-  updateStockListingStatus: (id: string, body: { isListed: boolean }) =>
-    apiClient<unknown>(`/admin/stocks/${id}/listing-status`, { method: 'PATCH', body: jsonBody(body) }),
+  createStock: async (body: AdminStockPayload): Promise<Stock> =>
+    mapStock(await apiClient<unknown>('/admin/stocks', { method: 'POST', body: jsonBody(body) })),
+  updateStock: async (id: string, body: Partial<AdminStockPayload>): Promise<Stock> =>
+    mapStock(await apiClient<unknown>(`/admin/stocks/${id}`, { method: 'PATCH', body: jsonBody(body) })),
+  updateStockListingStatus: async (id: string, body: { isListed: boolean }): Promise<Stock> =>
+    mapStock(await apiClient<unknown>(`/admin/stocks/${id}/listing-status`, { method: 'PATCH', body: jsonBody(body) })),
+  saveStockToSeed: async (id: string, body: SaveStockToSeedPayload = {}): Promise<Stock> =>
+    mapStock(await apiClient<unknown>(`/admin/stocks/${id}/save-to-seed`, { method: 'POST', body: jsonBody(body) })),
 
   getOpenAiStatus: () => apiClient<unknown>('/admin/scenarios/openai-status'),
   testOpenAi: () => apiClient<unknown>('/admin/scenarios/test-openai', { method: 'POST' }),
@@ -249,7 +261,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
 
   if (section === 'stocks') {
     if (action === '새 종목 상장') {
-      return adminApi.createStock({
+      const stock = await adminApi.createStock({
         marketId: requiredId(firstFilled(values.marketId, values.market), '소속 장'),
         name: String(values.stockName || ''),
         description: optionalString(values.description),
@@ -263,6 +275,19 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
         baseDividendRate: optionalNumber(values.dividendRate),
         isListed: true,
       });
+      if (values.persistToSeed !== true) {
+        return { stock, seedSaved: null } satisfies AdminStockCreationResult;
+      }
+      try {
+        const seededStock = await adminApi.saveStockToSeed(stock.id);
+        return { stock: seededStock, seedSaved: true } satisfies AdminStockCreationResult;
+      } catch (error) {
+        return {
+          stock,
+          seedSaved: false,
+          seedSaveError: error instanceof Error ? error.message : '기본 종목 저장에 실패했습니다.',
+        } satisfies AdminStockCreationResult;
+      }
     }
     if (action === '종목 수정') {
       return adminApi.updateStock(requiredId(firstFilled(values.stockId, values.targetStock), '수정할 종목'), {

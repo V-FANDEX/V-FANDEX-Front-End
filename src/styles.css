@@ -2214,6 +2214,98 @@ textarea {
   white-space: nowrap;
 }
 
+.stock-seed-modal {
+  width: min(620px, 100%);
+}
+
+.seed-stock-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.seed-stock-summary div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.seed-stock-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.seed-stock-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.seed-price-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(7, 14, 25, 0.6);
+}
+
+.seed-price-mode button {
+  min-width: 0;
+  min-height: 42px;
+  color: var(--muted);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  transition: color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.seed-price-mode button:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.seed-price-mode button.active {
+  color: #e8fbff;
+  background: rgba(56, 213, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(56, 213, 255, 0.3);
+}
+
+.seed-price-mode button:active {
+  transform: scale(0.98);
+}
+
+.seed-price-field {
+  margin-top: 14px;
+}
+
+.seed-catalog-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 14px;
+  padding: 12px;
+  color: #b9f3ff;
+  border: 1px solid rgba(56, 213, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(56, 213, 255, 0.07);
+}
+
+.seed-catalog-note p,
+.admin-form-error {
+  margin: 0;
+}
+
+.admin-form-error {
+  margin-top: 12px;
+  color: #ff9aac;
+}
+
 .admin-request-field.wide,
 .admin-request-check {
   grid-column: 1 / -1;
@@ -3294,6 +3386,81 @@ textarea {
   overflow-wrap: break-word;
 }
 
+.seed-source-status {
+  display: inline-grid;
+  gap: 3px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.seed-source-status strong,
+.seed-source-status small {
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.seed-source-status strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.seed-source-status small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.seed-source-status.file {
+  border-color: rgba(56, 213, 255, 0.25);
+  background: rgba(56, 213, 255, 0.08);
+}
+
+.seed-source-status.admin {
+  border-color: rgba(66, 227, 163, 0.25);
+  background: rgba(66, 227, 163, 0.08);
+}
+
+.seed-source-status.seasonal {
+  border-color: rgba(255, 184, 76, 0.22);
+  background: rgba(255, 184, 76, 0.07);
+}
+
+.table-command-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 9px;
+  color: #d8f8ff;
+  border: 1px solid rgba(56, 213, 255, 0.24);
+  border-radius: 7px;
+  background: rgba(56, 213, 255, 0.07);
+  font-size: 12px;
+  word-break: keep-all;
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.table-command-button:hover {
+  border-color: rgba(56, 213, 255, 0.48);
+  background: rgba(56, 213, 255, 0.13);
+}
+
+.table-command-button:active {
+  transform: scale(0.97);
+}
+
+.seed-file-lock {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  word-break: keep-all;
+}
+
 .admin-log-panel {
   display: grid;
   gap: 8px;
@@ -3785,6 +3952,20 @@ textarea {
 
   .admin-data-row {
     min-width: 640px;
+  }
+
+  .seed-stock-summary,
+  .seed-price-mode {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-seed-modal .modal-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .stock-seed-modal .modal-actions button {
+    width: 100%;
   }
 
   .schedule-summary {

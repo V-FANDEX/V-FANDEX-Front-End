@@ -42,9 +42,12 @@ import {
 import { StatCard } from '../components/Cards';
 import {
   adminApi,
+  type AdminStockCreationResult,
   type AdminMarketSimulationPayload,
   type AdminScenarioAutomationPayload,
+  type SaveStockToSeedPayload,
 } from '../services/adminApi';
+import { ApiError, getErrorMessage } from '../services/apiClient';
 import { enrichMarkets } from '../services/mappers';
 import { useFandexStore } from '../store/useFandexStore';
 import type { AdminSection } from '../types/admin';
@@ -163,6 +166,8 @@ export function AdminPage() {
   const [scenarioAutomationRunRequest, setScenarioAutomationRunRequest] = useState<ScenarioAutomationRunMode | null>(null);
   const [scenarioApplyResult, setScenarioApplyResult] = useState<ScenarioApplyResult | null>(null);
   const [seasonResetResult, setSeasonResetResult] = useState<SeasonResetResult | null>(null);
+  const [seedStockRequest, setSeedStockRequest] = useState<Stock | null>(null);
+  const [isSeedStockSaving, setIsSeedStockSaving] = useState(false);
   const [isSimulationSaving, setIsSimulationSaving] = useState(false);
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
   const [isAutomationSaving, setIsAutomationSaving] = useState(false);
@@ -281,22 +286,61 @@ export function AdminPage() {
       }
       if (actionRequest.section === 'season' && actionRequest.action === '시즌 초기화' && hasSeasonResetResult(result.data)) {
         setSeasonResetResult(result.data);
-        notify(`시즌 초기화 완료 · seed 종목 ${result.data.seedStocksApplied}개 적용`);
+        notify(
+          `시즌 초기화 완료 · 파일 기본 종목 ${result.data.seedStocksApplied}개, 관리자 기본 종목 ${result.data.adminSeedStocksRestored}개 복원`,
+        );
         const refreshResults = await Promise.allSettled([load(), refreshAdminData(true), adminApi.getSeasons()]);
         if (refreshResults.some((item) => item.status === 'rejected')) {
           notify('초기화는 완료됐지만 일부 데이터 새로고침에 실패했습니다. 새로고침을 눌러주세요.');
         }
         setActionRequest(null);
         return;
-      } else {
-        notify(`${actionRequest.action} 요청이 접수되었습니다. (${result.requestId})`);
-        await Promise.all([load(), refreshAdminData(true)]);
       }
+      if (actionRequest.section === 'stocks' && actionRequest.action === '새 종목 상장' && hasAdminStockCreationResult(result.data)) {
+        const creationResult = result.data;
+        setAdminStocks((current) => upsertStock(current, creationResult.stock));
+        if (creationResult.seedSaved === false) {
+          notify(`상장은 완료됐지만 기본 종목 저장에 실패했습니다. ${creationResult.seedSaveError ?? '종목 목록에서 다시 시도해주세요.'}`);
+        } else if (creationResult.seedSaved) {
+          notify(`${creationResult.stock.name} 상장 및 기본 카탈로그 저장이 완료되었습니다.`);
+        } else {
+          notify(`${creationResult.stock.name} 종목이 상장되었습니다.`);
+        }
+        await Promise.allSettled([load(), refreshAdminData(true)]);
+        setActionRequest(null);
+        return;
+      }
+      notify(`${actionRequest.action} 요청이 접수되었습니다. (${result.requestId})`);
+      await Promise.all([load(), refreshAdminData(true)]);
       setActionRequest(null);
     } catch (error) {
       notify(error instanceof Error ? error.message : '관리자 요청 처리에 실패했습니다.');
     } finally {
       setIsSubmittingAction(false);
+    }
+  };
+
+  const saveStockToSeed = async (stock: Stock, body: SaveStockToSeedPayload) => {
+    setIsSeedStockSaving(true);
+    try {
+      const updated = await adminApi.saveStockToSeed(stock.id, body);
+      setAdminStocks((current) => upsertStock(current, updated));
+      notify(`${updated.name}을(를) 관리자 기본 종목으로 저장했습니다.`);
+      setSeedStockRequest(null);
+      const refreshResults = await Promise.allSettled([load(), refreshAdminData(true)]);
+      if (refreshResults.some((item) => item.status === 'rejected')) {
+        notify('기본 종목 저장은 완료됐지만 일부 목록 새로고침에 실패했습니다.');
+      }
+      return null;
+    } catch (error) {
+      const message = formatStockSeedError(error);
+      notify(message);
+      if (error instanceof ApiError && error.status === 404) {
+        await refreshAdminData(true);
+      }
+      return message;
+    } finally {
+      setIsSeedStockSaving(false);
     }
   };
 
@@ -465,7 +509,22 @@ export function AdminPage() {
               currency(stock.tradeValue),
               formatStockStatus(stock.status),
               stock.dividendEnabled ? '배당 가능' : '미지원',
+              <SeedSourceStatus stock={stock} key={`${stock.id}-seed-status`} />,
+              stock.seedSource === 'FILE' ? (
+                <span className="seed-file-lock" key={`${stock.id}-seed-action`}>파일에서 관리</span>
+              ) : (
+                <button
+                  className="table-command-button"
+                  type="button"
+                  key={`${stock.id}-seed-action`}
+                  onClick={() => setSeedStockRequest(stock)}
+                >
+                  <DatabaseZap size={14} />
+                  {stock.seedSource === 'ADMIN' ? '기본 설정 수정' : '기본 종목으로 저장'}
+                </button>
+              ),
             ])}
+            seedStockCount={adminStocksForView.filter((stock) => stock.seedSource !== null).length}
             onAction={openActionRequest}
           />
         )}
@@ -574,6 +633,15 @@ export function AdminPage() {
       )}
       {seasonResetResult && (
         <SeasonResetResultModal result={seasonResetResult} onClose={() => setSeasonResetResult(null)} />
+      )}
+      {seedStockRequest && (
+        <StockSeedModal
+          stock={seedStockRequest}
+          marketName={seedStockRequest.market?.name ?? adminMarketsForView.find((market) => market.id === seedStockRequest.marketId)?.name}
+          isSubmitting={isSeedStockSaving}
+          onClose={() => setSeedStockRequest(null)}
+          onSubmit={(body) => saveStockToSeed(seedStockRequest, body)}
+        />
       )}
       {scenarioAutomationRunRequest && (
         <ScenarioAutomationConfirmModal
@@ -731,19 +799,28 @@ function MarketsSection({ rows, onAction }: { rows: Array<Array<ReactNode>>; onA
   );
 }
 
-function StocksSection({ rows, onAction }: { rows: Array<Array<ReactNode>>; onAction: (message: string) => void }) {
+function StocksSection({
+  rows,
+  seedStockCount,
+  onAction,
+}: {
+  rows: Array<Array<ReactNode>>;
+  seedStockCount: number;
+  onAction: (message: string) => void;
+}) {
   return (
     <AdminWorkArea
       summary={[
         ['상장 종목', `${rows.length}개`],
         ['배당 종목', `${rows.filter((row) => row[7] === '배당 가능').length}개`],
+        ['기본 종목', `${seedStockCount}개`],
         ['관리 범위', '비상장 포함'],
       ]}
       actions={['새 종목 상장', '종목 수정', '종목 비활성화', '종목 상장폐지']}
       onAction={onAction}
       formTitle="종목 상장 폼"
       fields={['종목명', '소속 장', '초기 가격', '초기 발행량', '설명', '이미지 URL', '태그', '기본 배당률', '변동성 등급']}
-      table={{ columns: ['종목', '소속 장', '심볼', '현재가', '거래량', '거래대금', '상태', '배당'], rows }}
+      table={{ columns: ['종목', '소속 장', '심볼', '현재가', '거래량', '거래대금', '상태', '배당', '기본 카탈로그', '관리'], rows }}
     />
   );
 }
@@ -1457,6 +1534,24 @@ function formatStockStatus(status?: string) {
   return '상장';
 }
 
+function SeedSourceStatus({ stock }: { stock: Stock }) {
+  const sourceClass = stock.seedSource?.toLowerCase() ?? 'seasonal';
+  const label = stock.seedSource === 'FILE'
+    ? '파일 기본 종목'
+    : stock.seedSource === 'ADMIN'
+      ? '관리자 저장 종목'
+      : '시즌 한정 종목';
+  return (
+    <span
+      className={`seed-source-status ${sourceClass}`}
+      title={stock.seededAt ? `마지막 저장 ${dateTime(stock.seededAt)}` : undefined}
+    >
+      <strong>{label}</strong>
+      {stock.seedPrice !== null && <small>{currency(stock.seedPrice)}</small>}
+    </span>
+  );
+}
+
 function buildAdminUserGrowth(dashboard?: AdminDashboard) {
   if (!dashboard?.userGrowthSeries.length) return userGrowthData;
   const maxUsers = Math.max(...dashboard.userGrowthSeries.map((point) => point.count), 1);
@@ -1476,6 +1571,27 @@ function hasScenarioApplyResult(value: unknown): value is ScenarioApplyResult {
 
 function hasSeasonResetResult(value: unknown): value is SeasonResetResult {
   return Boolean(value && typeof value === 'object' && 'seedStocksApplied' in value);
+}
+
+function hasAdminStockCreationResult(value: unknown): value is AdminStockCreationResult {
+  return Boolean(value && typeof value === 'object' && 'stock' in value && 'seedSaved' in value);
+}
+
+function upsertStock(stocks: Stock[], stock: Stock) {
+  const exists = stocks.some((item) => item.id === stock.id);
+  return exists ? stocks.map((item) => (item.id === stock.id ? stock : item)) : [stock, ...stocks];
+}
+
+function formatStockSeedError(error: unknown) {
+  if (error instanceof ApiError) {
+    const backendMessage = getErrorMessage(error.payload, '').trim();
+    if (backendMessage) return backendMessage;
+    if (error.status === 400) return '저장 가격은 0.0001 이상의 숫자여야 합니다.';
+    if (error.status === 401) return '로그인이 만료되었습니다. 다시 로그인해주세요.';
+    if (error.status === 403) return '기본 종목 저장은 관리자만 실행할 수 있습니다.';
+    if (error.status === 404) return '저장할 종목을 찾을 수 없습니다. 목록을 새로고침했습니다.';
+  }
+  return error instanceof Error ? error.message : '기본 종목 저장에 실패했습니다.';
 }
 
 function buildDividendSchedulePatch(action: string, values: Record<string, string | boolean>): Partial<DividendSchedule> {
@@ -1932,6 +2048,110 @@ function formatAiStrategy(strategy: AdminAiAccount['strategyType']) {
   return '랜덤형';
 }
 
+function StockSeedModal({
+  stock,
+  marketName,
+  isSubmitting,
+  onClose,
+  onSubmit,
+}: {
+  stock: Stock;
+  marketName?: string;
+  isSubmitting: boolean;
+  onClose: () => void;
+  onSubmit: (body: SaveStockToSeedPayload) => Promise<string | null>;
+}) {
+  const savedCustomPrice = stock.seedPrice !== null && Math.abs(stock.seedPrice - stock.initialPrice) > 0.00005;
+  const [priceMode, setPriceMode] = useState<'INITIAL' | 'CUSTOM'>(savedCustomPrice ? 'CUSTOM' : 'INITIAL');
+  const [seedPrice, setSeedPrice] = useState(String(stock.seedPrice ?? stock.initialPrice));
+  const [formError, setFormError] = useState('');
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError('');
+    const numericPrice = Number(seedPrice);
+    if (priceMode === 'CUSTOM' && (!Number.isFinite(numericPrice) || numericPrice < 0.0001)) {
+      setFormError('다음 시즌 시작 가격은 0.0001 이상으로 입력해주세요.');
+      return;
+    }
+    const error = await onSubmit(priceMode === 'CUSTOM' ? { seedPrice: numericPrice } : {});
+    if (error) setFormError(error);
+  };
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="stock-seed-modal-title">
+      <form className="modal stock-seed-modal" onSubmit={submit}>
+        <div className="admin-request-head">
+          <div>
+            <span className="eyebrow">Season Catalog</span>
+            <h3 id="stock-seed-modal-title">
+              {stock.seedSource === 'ADMIN' ? '기본 설정 수정' : '기본 종목으로 저장'}
+            </h3>
+            <p>{marketName ?? '소속 장'} · {stock.name}</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="모달 닫기" disabled={isSubmitting}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="seed-stock-summary">
+          <div><span>현재가</span><strong>{currency(stock.price)}</strong></div>
+          <div><span>초기 상장 가격</span><strong>{currency(stock.initialPrice)}</strong></div>
+          {stock.seedPrice !== null && <div><span>현재 저장 가격</span><strong>{currency(stock.seedPrice)}</strong></div>}
+        </div>
+
+        <div className="seed-price-mode" role="group" aria-label="다음 시즌 시작 가격 방식">
+          <button
+            type="button"
+            className={priceMode === 'INITIAL' ? 'active' : ''}
+            onClick={() => setPriceMode('INITIAL')}
+          >
+            초기 상장 가격 사용
+          </button>
+          <button
+            type="button"
+            className={priceMode === 'CUSTOM' ? 'active' : ''}
+            onClick={() => setPriceMode('CUSTOM')}
+          >
+            직접 지정
+          </button>
+        </div>
+
+        {priceMode === 'CUSTOM' && (
+          <label className="field seed-price-field">
+            <span>다음 시즌 시작 가격</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0.0001"
+              step="0.0001"
+              value={seedPrice}
+              onChange={(event) => setSeedPrice(event.target.value)}
+              required
+              autoFocus
+            />
+          </label>
+        )}
+
+        <div className="seed-catalog-note">
+          <DatabaseZap size={18} />
+          <p>
+            저장하면 이 종목과 소속 시장이 시즌 초기화 후에도 유지됩니다. 현재가는 저장되지 않으며 선택한 가격으로 복원됩니다.
+          </p>
+        </div>
+        {formError && <p className="admin-form-error" role="alert">{formError}</p>}
+
+        <div className="modal-actions">
+          <button className="ghost-button" type="button" onClick={onClose} disabled={isSubmitting}>취소</button>
+          <button className="primary-button" type="submit" disabled={isSubmitting}>
+            <DatabaseZap size={17} /> {isSubmitting ? '저장 중' : '기본 카탈로그에 저장'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function SeasonResetResultModal({ result, onClose }: { result: SeasonResetResult; onClose: () => void }) {
   const clearedRows = [
     ['유저 초기화', result.usersReset],
@@ -1948,9 +2168,11 @@ function SeasonResetResultModal({ result, onClose }: { result: SeasonResetResult
     ['비 seed 시장 삭제', result.nonSeedMarketsDeleted],
   ] as const;
   const seedRows = [
-    ['seed 시장 적용', result.seedMarketsApplied],
-    ['seed 종목 적용', result.seedStocksApplied],
-    ['seed 가격 히스토리 생성', result.seedPriceHistoriesCreated],
+    ['파일 기본 시장 적용', result.seedMarketsApplied],
+    ['파일 기본 종목 적용', result.seedStocksApplied],
+    ['관리자 기본 시장 유지', result.adminSeedMarketsPreserved],
+    ['관리자 기본 종목 복원', result.adminSeedStocksRestored],
+    ['가격 히스토리 생성', result.seedPriceHistoriesCreated],
   ] as const;
 
   return (
@@ -1978,7 +2200,7 @@ function SeasonResetResultModal({ result, onClose }: { result: SeasonResetResult
             ))}
           </article>
           <article className="scenario-result-section">
-            <h4>Seed 재적용</h4>
+            <h4>기본 카탈로그 복원</h4>
             {seedRows.map(([label, value]) => (
               <div className="season-reset-row" key={label}>
                 <span>{label}</span>
@@ -2055,9 +2277,10 @@ function AdminActionModal({
           <div className="danger-zone-note">
             <strong>Seed 카탈로그 기준 초기화</strong>
             <p>
-              seed에 없는 시장/종목, 보유 자산, 조건 주문, 관심 종목, 거래 내역, 배당 기록, 랭킹,
+              파일 또는 관리자 기본 카탈로그에 없는 시장/종목, 보유 자산, 조건 주문, 관심 종목, 거래 내역, 배당 기록, 랭킹,
               시나리오, 시나리오 영향 기록, 가격 히스토리가 삭제됩니다.
             </p>
+            <p>관리자가 기본 종목으로 저장한 종목과 소속 시장은 저장 가격으로 복원됩니다.</p>
             <p>일반 유저, 관리자, AI 계정과 시즌 레코드는 유지되지만 USER/AI 자산은 시즌 초기 자금으로 리셋됩니다.</p>
           </div>
         )}
@@ -2483,17 +2706,18 @@ function getActionFields(
   if (section === 'stocks') {
     if (action === '새 종목 상장') {
       return [
-        { name: 'stockName', label: '종목명', placeholder: '예: 신규 종목' },
-        { name: 'market', label: '소속 장', type: 'select', options: marketOptions },
-        { name: 'initialPrice', label: '초기 가격', type: 'number', placeholder: '10000' },
-        { name: 'totalSupply', label: '초기 발행량', type: 'number', placeholder: '1000000' },
-        { name: 'circulatingSupply', label: '초기 유통량', type: 'number', placeholder: '1000000' },
+        { name: 'stockName', label: '종목명', placeholder: '예: 신규 종목', required: true },
+        { name: 'market', label: '소속 장', type: 'select', options: marketOptions, required: true },
+        { name: 'initialPrice', label: '초기 가격', type: 'number', placeholder: '10000', min: 0.0001, step: 0.0001, required: true },
+        { name: 'totalSupply', label: '초기 발행량', type: 'number', placeholder: '1000000', min: 1, step: 1, required: true },
+        { name: 'circulatingSupply', label: '초기 유통량', type: 'number', placeholder: '1000000', min: 0, step: 1 },
         { name: 'description', label: '설명', type: 'textarea', placeholder: '종목 설명을 입력하세요.' },
         { name: 'imageUrl', label: '이미지 URL', placeholder: 'https://...' },
         { name: 'tags', label: '태그', placeholder: '쉼표로 구분' },
         { name: 'volatility', label: '변동성 등급', type: 'select', options: ['S', 'A', 'B', 'C'] },
         { name: 'dividendEnabled', label: '배당 가능 종목', type: 'checkbox' },
-        { name: 'dividendRate', label: '기본 배당률', type: 'number', placeholder: '0.01' },
+        { name: 'dividendRate', label: '기본 배당률', type: 'number', placeholder: '0.01', min: 0, step: 0.0001 },
+        { name: 'persistToSeed', label: '다음 시즌에도 유지', type: 'checkbox' },
       ];
     }
     if (action === '종목 수정') {

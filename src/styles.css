@@ -1298,7 +1298,38 @@ main {
 }
 
 .dividend-schedule-panel {
+  display: grid;
+  gap: 14px;
   margin-top: 18px;
+}
+
+.dividend-schedule-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dividend-schedule-actions > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dividend-schedule-actions span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dividend-schedule-actions strong {
+  overflow-wrap: anywhere;
+}
+
+.dividend-schedule-actions button {
+  flex: 0 0 auto;
 }
 
 .dividend-card-actions {
@@ -1312,7 +1343,7 @@ main {
 
 .schedule-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1535,33 +1566,13 @@ main {
 }
 
 .recharts-bar-rectangle .recharts-rectangle {
+  opacity: 0.88;
   transition: opacity 160ms ease, filter 160ms ease;
 }
 
-.active-chart-bar {
-  transform-box: fill-box;
-  transform-origin: center bottom;
-  animation: barHoverIn 180ms ease-out;
-}
-
-.active-chart-bar.cyan {
-  filter: drop-shadow(0 0 10px rgba(56, 213, 255, 0.42));
-}
-
-.active-chart-bar.purple {
-  filter: drop-shadow(0 0 10px rgba(124, 92, 255, 0.42));
-}
-
-@keyframes barHoverIn {
-  from {
-    opacity: 0.72;
-    transform: scaleY(0.94);
-  }
-
-  to {
-    opacity: 1;
-    transform: scaleY(1);
-  }
+.recharts-bar-rectangle .recharts-rectangle:hover {
+  opacity: 1;
+  filter: brightness(1.16) drop-shadow(0 0 8px rgba(56, 213, 255, 0.28));
 }
 
 .market-graph-card {
@@ -2100,7 +2111,11 @@ textarea {
 }
 
 .admin-request-modal {
+  display: flex;
+  flex-direction: column;
   width: min(720px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
 }
 
 .scenario-result-modal {
@@ -2110,6 +2125,7 @@ textarea {
 }
 
 .admin-request-head {
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 38px;
   gap: 16px;
@@ -2128,9 +2144,28 @@ textarea {
 }
 
 .admin-request-fields {
+  min-height: 0;
+  padding-right: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(56, 213, 255, 0.34) rgba(255, 255, 255, 0.04);
+  scrollbar-width: thin;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.admin-request-fields::-webkit-scrollbar {
+  width: 6px;
+}
+
+.admin-request-fields::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.admin-request-fields::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(56, 213, 255, 0.34);
 }
 
 .scenario-result-grid {
@@ -2457,6 +2492,17 @@ textarea {
   animation: adminSelectIn 170ms ease-out;
 }
 
+.admin-select-menu-portal {
+  inset: auto;
+  z-index: 120;
+  overscroll-behavior: contain;
+}
+
+.admin-select-menu-portal.above {
+  transform-origin: bottom center;
+  animation-name: adminSelectInAbove;
+}
+
 .admin-select-menu button {
   width: 100%;
   min-height: 38px;
@@ -2504,6 +2550,18 @@ textarea {
   }
 }
 
+@keyframes adminSelectInAbove {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .admin-request-check {
   min-height: 42px;
   padding: 10px 12px;
@@ -2512,6 +2570,7 @@ textarea {
 }
 
 .modal-actions {
+  flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
   gap: 10px;
@@ -2981,6 +3040,186 @@ textarea {
   text-align: left;
 }
 
+.admin-stock-control-panel,
+.admin-stock-list-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-stock-control-head,
+.admin-stock-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.admin-stock-control-head > span,
+.admin-stock-list-head > span {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+}
+
+.admin-stock-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-stock-kpi-grid .admin-summary-item {
+  display: grid;
+  align-content: center;
+  min-height: 76px;
+  padding: 11px 12px;
+  border-left: 2px solid rgba(56, 213, 255, 0.28);
+  background: rgba(255, 255, 255, 0.026);
+}
+
+.admin-stock-kpi-grid .admin-summary-item strong {
+  text-align: left;
+}
+
+.admin-stock-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-stock-item {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.1fr) minmax(300px, 1.35fr) minmax(130px, 0.55fr) minmax(210px, 0.8fr);
+  gap: 16px;
+  align-items: center;
+  min-width: 0;
+  padding: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.018);
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.admin-stock-item:hover {
+  border-color: rgba(56, 213, 255, 0.2);
+  background: rgba(56, 213, 255, 0.035);
+}
+
+.admin-stock-identity {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.admin-stock-identity img {
+  width: 52px;
+  height: 52px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.admin-stock-identity img.fallback {
+  padding: 7px;
+  object-fit: contain;
+}
+
+.admin-stock-identity div,
+.admin-stock-metrics span,
+.admin-stock-seed-control {
+  min-width: 0;
+}
+
+.admin-stock-identity div {
+  display: grid;
+  gap: 3px;
+}
+
+.admin-stock-identity strong,
+.admin-stock-identity span,
+.admin-stock-identity small {
+  overflow-wrap: anywhere;
+}
+
+.admin-stock-identity strong {
+  font-size: 15px;
+}
+
+.admin-stock-identity span,
+.admin-stock-identity small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-stock-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-stock-metrics span {
+  display: grid;
+  gap: 4px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.admin-stock-metrics small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-stock-metrics strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.admin-stock-operation-state,
+.admin-stock-seed-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.admin-stock-status,
+.admin-stock-dividend {
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.admin-stock-status.listed,
+.admin-stock-dividend.active {
+  color: #aef5d4;
+  border-color: rgba(66, 227, 163, 0.24);
+  background: rgba(66, 227, 163, 0.07);
+}
+
+.admin-stock-status.suspended,
+.admin-stock-status.unlisted {
+  color: #ffb8c4;
+  border-color: rgba(255, 100, 124, 0.24);
+  background: rgba(255, 100, 124, 0.07);
+}
+
+.admin-stock-seed-control {
+  justify-content: flex-end;
+}
+
+.admin-stock-seed-control .seed-source-status {
+  margin-right: auto;
+}
+
+.admin-stock-seed-control .table-command-button {
+  flex: 1 1 150px;
+}
+
 .admin-form {
   display: grid;
   gap: 14px;
@@ -3141,7 +3380,8 @@ textarea {
   white-space: nowrap;
 }
 
-.admin-multiselect .admin-select-menu {
+.admin-multiselect .admin-select-menu,
+.admin-select-menu.multiselect {
   max-height: 280px;
   overflow-y: auto;
 }
@@ -3601,12 +3841,25 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .admin-stock-item {
+    grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.15fr);
+    align-items: start;
+  }
+
+  .admin-stock-operation-state {
+    align-self: center;
+  }
+
   .automation-status-panel {
     position: static;
   }
 
   .admin-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-stock-kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .schedule-summary {
@@ -3723,6 +3976,35 @@ textarea {
   .automation-toggle-grid,
   .automation-result-meta {
     grid-template-columns: 1fr;
+  }
+
+  .admin-stock-item,
+  .admin-stock-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-stock-control-head,
+  .admin-stock-list-head,
+  .dividend-schedule-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-stock-control-head > span,
+  .admin-stock-list-head > span {
+    text-align: left;
+  }
+
+  .admin-stock-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .admin-stock-seed-control {
+    justify-content: flex-start;
+  }
+
+  .dividend-schedule-actions button {
+    width: 100%;
   }
 
   .automation-section-head,
@@ -3940,6 +4222,24 @@ textarea {
   .admin-request-fields,
   .scenario-result-grid {
     grid-template-columns: 1fr;
+  }
+
+  .modal-backdrop {
+    padding: 8px;
+  }
+
+  .admin-request-modal {
+    max-height: calc(100dvh - 16px);
+    padding: 16px;
+  }
+
+  .admin-request-modal .modal-actions {
+    align-items: stretch;
+  }
+
+  .admin-request-modal .modal-actions button {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .simulation-result-row {

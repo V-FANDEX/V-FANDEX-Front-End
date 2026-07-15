@@ -89,13 +89,11 @@ export function HomePage() {
                   dataKey="volume"
                   radius={[8, 8, 0, 0]}
                   fill="#38d5ff"
-                  activeBar={{ className: 'active-chart-bar cyan', stroke: 'rgba(238,247,255,0.54)', strokeWidth: 1 }}
                 />
                 <Bar
                   dataKey="marketCap"
                   radius={[8, 8, 0, 0]}
                   fill="#7c5cff"
-                  activeBar={{ className: 'active-chart-bar purple', stroke: 'rgba(238,247,255,0.54)', strokeWidth: 1 }}
                 />
               </BarChart>
             </ResponsiveContainer>

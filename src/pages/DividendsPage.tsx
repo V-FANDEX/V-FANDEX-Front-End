@@ -25,9 +25,15 @@ export function DividendsPage() {
           <span>다음 지급 <strong>{dividendSchedule ? dateTime(dividendSchedule.nextRunAt ?? dividendSchedule.nextPayoutAt) : '-'}</strong></span>
           <span>최근 지급 <strong>{dividendSchedule?.lastRunAt ? dateTime(dividendSchedule.lastRunAt) : '-'}</strong></span>
         </div>
-        <button className="secondary-button" type="button" onClick={() => void claimDividend()}>
-          시스템 배당 수령 요청
-        </button>
+        <div className="dividend-schedule-actions">
+          <div>
+            <span>수동 지급 요청</span>
+            <strong>시스템 배당</strong>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => void claimDividend()}>
+            <RotateCcw size={16} /> 시스템 배당 수령 요청
+          </button>
+        </div>
       </section>
       <section className="dividend-grid">
         {dividendStocks.map(({ holding, stock }) => {

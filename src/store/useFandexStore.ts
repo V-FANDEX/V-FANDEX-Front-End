@@ -55,13 +55,21 @@ export const useFandexStore = create<FandexState>((set, get) => ({
 
   load: async () => {
     try {
-      const [stocksData, marketsData, seasonData, rankingData, scenarioData] = await Promise.all([
+      const publicResults = await Promise.allSettled([
         fandexApi.getStocks(),
         fandexApi.getMarkets(),
         fandexApi.getSeason(),
         fandexApi.getRankings(),
         fandexApi.getScenarios(),
       ]);
+      const stocksData = settledValue(publicResults[0], []);
+      const marketsData = settledValue(publicResults[1], []);
+      const seasonData = settledValue(publicResults[2], undefined);
+      const rankingData = settledValue(publicResults[3], []);
+      const scenarioData = settledValue(publicResults[4], []);
+      const failedPublicData = publicResults
+        .map((result, index) => (result.status === 'rejected' ? ['종목', '시장', '시즌', '랭킹', '시나리오'][index] : null))
+        .filter((label): label is string => Boolean(label));
       const [currentUser, portfolio, watchlist, orderData, tradeData, dividendData, scheduleData, myRanking] =
         await Promise.all([
           safe(fandexApi.getCurrentUser()),
@@ -90,6 +98,9 @@ export const useFandexStore = create<FandexState>((set, get) => ({
         transactions,
         dividendSchedule: scheduleData,
         isReady: true,
+        ...(failedPublicData.length
+          ? { toast: `${failedPublicData.join(', ')} 데이터를 서버에서 불러오지 못했습니다. 잠시 후 다시 시도해주세요.` }
+          : {}),
       });
     } catch (error) {
       set({
@@ -227,10 +238,7 @@ export const useFandexStore = create<FandexState>((set, get) => ({
   updateDividendSchedule: (patch) => {
     const current = get().dividendSchedule;
     if (!current) return;
-    set({
-      dividendSchedule: { ...current, ...patch },
-      toast: '배당 지급 스케줄이 업데이트되었습니다.',
-    });
+    set({ dividendSchedule: { ...current, ...patch } });
   },
 
   cancelConditionalOrder: async (orderId) => {
@@ -261,6 +269,10 @@ async function safe<T>(promise: Promise<T>, fallback?: T) {
     }
     return fallback;
   }
+}
+
+function settledValue<T>(result: PromiseSettledResult<T>, fallback: T): T {
+  return result.status === 'fulfilled' ? result.value : fallback;
 }
 
 function isUnauthorized(error: unknown) {

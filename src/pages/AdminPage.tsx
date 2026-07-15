@@ -24,7 +24,19 @@ import {
   Workflow,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type FormEvent,
+  type ReactNode,
+  type SetStateAction,
+} from 'react';
+import { createPortal } from 'react-dom';
 import {
   Area,
   AreaChart,
@@ -500,32 +512,10 @@ export function AdminPage() {
         )}
         {activeSection === 'stocks' && (
           <StocksSection
-            rows={adminStocksForView.map((stock) => [
-              stock.name,
-              stock.market?.name ?? adminMarketsForView.find((market) => market.id === stock.marketId)?.name ?? '-',
-              stock.symbol,
-              currency(stock.price),
-              compact(stock.volume),
-              currency(stock.tradeValue),
-              formatStockStatus(stock.status),
-              stock.dividendEnabled ? '배당 가능' : '미지원',
-              <SeedSourceStatus stock={stock} key={`${stock.id}-seed-status`} />,
-              stock.seedSource === 'FILE' ? (
-                <span className="seed-file-lock" key={`${stock.id}-seed-action`}>파일에서 관리</span>
-              ) : (
-                <button
-                  className="table-command-button"
-                  type="button"
-                  key={`${stock.id}-seed-action`}
-                  onClick={() => setSeedStockRequest(stock)}
-                >
-                  <DatabaseZap size={14} />
-                  {stock.seedSource === 'ADMIN' ? '기본 설정 수정' : '기본 종목으로 저장'}
-                </button>
-              ),
-            ])}
-            seedStockCount={adminStocksForView.filter((stock) => stock.seedSource !== null).length}
+            stocks={adminStocksForView}
+            markets={adminMarketsForView}
             onAction={openActionRequest}
+            onSeedAction={setSeedStockRequest}
           />
         )}
         {activeSection === 'ai' && (
@@ -743,9 +733,9 @@ function OverviewSection({
               <XAxis dataKey="name" tickLine={false} axisLine={false} />
               <YAxis hide />
               <Tooltip formatter={(value, name) => [name === 'marketCap' ? currency(Number(value)) : compact(Number(value)), name === 'marketCap' ? '시가총액' : name === 'tradeCount' ? '거래 건수' : '거래량']} contentStyle={tooltipStyle} cursor={false} />
-              <Bar dataKey="marketCap" fill="#7c5cff" radius={[8, 8, 0, 0]} activeBar={{ className: 'active-chart-bar purple' }} />
-              <Bar dataKey="volume" fill="#38d5ff" radius={[8, 8, 0, 0]} activeBar={{ className: 'active-chart-bar cyan' }} />
-              <Bar dataKey="tradeCount" fill="#42e3a3" radius={[8, 8, 0, 0]} activeBar={{ className: 'active-chart-bar cyan' }} />
+              <Bar dataKey="marketCap" fill="#7c5cff" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="volume" fill="#38d5ff" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="tradeCount" fill="#42e3a3" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </article>
@@ -800,28 +790,94 @@ function MarketsSection({ rows, onAction }: { rows: Array<Array<ReactNode>>; onA
 }
 
 function StocksSection({
-  rows,
-  seedStockCount,
+  stocks,
+  markets,
   onAction,
+  onSeedAction,
 }: {
-  rows: Array<Array<ReactNode>>;
-  seedStockCount: number;
+  stocks: Stock[];
+  markets: Market[];
   onAction: (message: string) => void;
+  onSeedAction: (stock: Stock) => void;
 }) {
+  const listedCount = stocks.filter((stock) => stock.status === 'LISTED' || stock.active).length;
+  const dividendCount = stocks.filter((stock) => stock.dividendEnabled).length;
+  const seedStockCount = stocks.filter((stock) => stock.seedSource !== null).length;
+
   return (
-    <AdminWorkArea
-      summary={[
-        ['상장 종목', `${rows.length}개`],
-        ['배당 종목', `${rows.filter((row) => row[7] === '배당 가능').length}개`],
-        ['기본 종목', `${seedStockCount}개`],
-        ['관리 범위', '비상장 포함'],
-      ]}
-      actions={['새 종목 상장', '종목 수정', '종목 비활성화', '종목 상장폐지']}
-      onAction={onAction}
-      formTitle="종목 상장 폼"
-      fields={['종목명', '소속 장', '초기 가격', '초기 발행량', '설명', '이미지 URL', '태그', '기본 배당률', '변동성 등급']}
-      table={{ columns: ['종목', '소속 장', '심볼', '현재가', '거래량', '거래대금', '상태', '배당', '기본 카탈로그', '관리'], rows }}
-    />
+    <>
+      <section className="panel admin-stock-control-panel">
+        <div className="admin-stock-control-head">
+          <div className="panel-title"><Coins size={20} /><h2>종목 운영 현황</h2></div>
+          <span>비상장 종목을 포함한 전체 카탈로그</span>
+        </div>
+        <div className="admin-stock-kpi-grid">
+          <SummaryItem label="전체 종목" value={`${stocks.length}개`} />
+          <SummaryItem label="상장 종목" value={`${listedCount}개`} />
+          <SummaryItem label="배당 종목" value={`${dividendCount}개`} />
+          <SummaryItem label="기본 종목" value={`${seedStockCount}개`} />
+        </div>
+        <ActionGrid actions={['새 종목 상장', '종목 수정', '종목 비활성화', '종목 상장폐지']} onAction={onAction} />
+      </section>
+
+      <section className="panel admin-stock-list-panel">
+        <div className="admin-stock-list-head">
+          <div className="panel-title"><DatabaseZap size={20} /><h2>종목 목록</h2></div>
+          <span>{stocks.length.toLocaleString('ko-KR')}개</span>
+        </div>
+        <div className="admin-stock-list">
+          {stocks.length ? stocks.map((stock) => {
+            const marketName = stock.market?.name ?? markets.find((market) => market.id === stock.marketId)?.name ?? '소속 장 없음';
+            return (
+              <article className="admin-stock-item" key={stock.id}>
+                <div className="admin-stock-identity">
+                  <img
+                    src={stock.imageUrl}
+                    alt=""
+                    onError={(event) => {
+                      event.currentTarget.src = '/assets/v-fandex-logo.svg';
+                      event.currentTarget.classList.add('fallback');
+                    }}
+                  />
+                  <div>
+                    <strong>{stock.name}</strong>
+                    <span>{marketName} · {stock.symbol}</span>
+                    {stock.tags.length > 0 && <small>{stock.tags.slice(0, 2).join(' · ')}</small>}
+                  </div>
+                </div>
+
+                <div className="admin-stock-metrics">
+                  <span><small>현재가</small><strong>{currency(stock.price)}</strong></span>
+                  <span><small>거래량</small><strong>{compact(stock.volume)}</strong></span>
+                  <span><small>거래대금</small><strong>{currency(stock.tradeValue)}</strong></span>
+                </div>
+
+                <div className="admin-stock-operation-state">
+                  <span className={`admin-stock-status ${stock.status.toLowerCase()}`}>{formatStockStatus(stock.status)}</span>
+                  <span className={stock.dividendEnabled ? 'admin-stock-dividend active' : 'admin-stock-dividend'}>
+                    {stock.dividendEnabled ? '배당 가능' : '배당 미지원'}
+                  </span>
+                </div>
+
+                <div className="admin-stock-seed-control">
+                  <SeedSourceStatus stock={stock} />
+                  {stock.seedSource === 'FILE' ? (
+                    <span className="seed-file-lock">파일에서 관리</span>
+                  ) : (
+                    <button className="table-command-button" type="button" onClick={() => onSeedAction(stock)}>
+                      <DatabaseZap size={14} />
+                      {stock.seedSource === 'ADMIN' ? '기본 설정 수정' : '기본 종목으로 저장'}
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          }) : (
+            <div className="empty-state">서버에서 종목 목록을 불러오지 못했습니다.</div>
+          )}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -1424,7 +1480,7 @@ function DividendSection({
               <XAxis dataKey="tier" tickLine={false} axisLine={false} />
               <YAxis hide />
               <Tooltip contentStyle={tooltipStyle} cursor={false} />
-              <Bar dataKey="rate" name="배당률" fill="#42e3a3" radius={[8, 8, 0, 0]} activeBar={{ className: 'active-chart-bar cyan' }} />
+              <Bar dataKey="rate" name="배당률" fill="#42e3a3" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </article>
@@ -2392,10 +2448,80 @@ function AdminNumberInput({ field }: { field: AdminActionField }) {
   );
 }
 
+function useAdminSelectPopover(open: boolean, setOpen: Dispatch<SetStateAction<boolean>>) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>();
+  const [placement, setPlacement] = useState<'above' | 'below'>('below');
+
+  const updatePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const menuGap = 8;
+    const spaceBelow = window.innerHeight - rect.bottom - viewportPadding - menuGap;
+    const spaceAbove = rect.top - viewportPadding - menuGap;
+    const shouldOpenAbove = spaceBelow < 180 && spaceAbove > spaceBelow;
+    const availableHeight = shouldOpenAbove ? spaceAbove : spaceBelow;
+    const width = Math.min(rect.width, window.innerWidth - viewportPadding * 2);
+    const left = Math.min(
+      Math.max(rect.left, viewportPadding),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
+    );
+    const maxHeight = Math.max(96, Math.min(280, availableHeight));
+
+    setPlacement(shouldOpenAbove ? 'above' : 'below');
+    setMenuStyle({
+      position: 'fixed',
+      left,
+      width,
+      maxHeight,
+      ...(shouldOpenAbove
+        ? { bottom: window.innerHeight - rect.top + menuGap }
+        : { top: rect.bottom + menuGap }),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setMenuStyle(undefined);
+      return undefined;
+    }
+
+    updatePosition();
+    const animationFrame = window.requestAnimationFrame(updatePosition);
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+
+    window.addEventListener('resize', updatePosition);
+    document.addEventListener('scroll', updatePosition, true);
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener('resize', updatePosition);
+      document.removeEventListener('scroll', updatePosition, true);
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open, setOpen, updatePosition]);
+
+  return { triggerRef, menuRef, menuStyle, placement };
+}
+
 function AdminActionSelect({ field }: { field: AdminActionField }) {
   const options = useMemo(() => (field.options ?? []).map(toSelectOption), [field.options]);
   const [selected, setSelected] = useState(field.defaultValue ?? options[0]?.value ?? '');
   const [open, setOpen] = useState(false);
+  const { triggerRef, menuRef, menuStyle, placement } = useAdminSelectPopover(open, setOpen);
   const selectedOption = options.find((option) => option.value === selected);
 
   useEffect(() => {
@@ -2411,6 +2537,7 @@ function AdminActionSelect({ field }: { field: AdminActionField }) {
       <input type="hidden" name={field.name} value={selected} />
       <div className={open ? 'admin-select open' : 'admin-select'}>
         <button
+          ref={triggerRef}
           type="button"
           className="admin-select-trigger"
           aria-haspopup="listbox"
@@ -2420,8 +2547,13 @@ function AdminActionSelect({ field }: { field: AdminActionField }) {
           <span>{selectedOption?.label || selected || field.placeholder || '선택'}</span>
           <ChevronDown size={17} />
         </button>
-        {open && (
-          <div className="admin-select-menu" role="listbox">
+        {open && menuStyle && createPortal(
+          <div
+            ref={menuRef}
+            className={`admin-select-menu admin-select-menu-portal ${placement}`}
+            role="listbox"
+            style={menuStyle}
+          >
             {options.map((option) => (
               <button
                 key={option.value || option.label}
@@ -2438,7 +2570,8 @@ function AdminActionSelect({ field }: { field: AdminActionField }) {
                 {selected === option.value && <Check size={16} />}
               </button>
             ))}
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
     </label>
@@ -2452,6 +2585,7 @@ function AdminActionMultiSelect({ field }: { field: AdminActionField }) {
   );
   const [selected, setSelected] = useState<string[]>(() => parseSelectedValues(field.defaultValue));
   const [open, setOpen] = useState(false);
+  const { triggerRef, menuRef, menuStyle, placement } = useAdminSelectPopover(open, setOpen);
   const selectedLabels = selected
     .map((value) => options.find((option) => option.value === value)?.label)
     .filter(Boolean);
@@ -2474,6 +2608,7 @@ function AdminActionMultiSelect({ field }: { field: AdminActionField }) {
       <input type="hidden" name={field.name} value={selected.join(',')} />
       <div className={open ? 'admin-select admin-multiselect open' : 'admin-select admin-multiselect'}>
         <button
+          ref={triggerRef}
           type="button"
           className="admin-select-trigger"
           aria-haspopup="listbox"
@@ -2483,8 +2618,14 @@ function AdminActionMultiSelect({ field }: { field: AdminActionField }) {
           <span>{selectedLabels.length ? selectedLabels.join(', ') : field.placeholder || '선택 없음'}</span>
           <ChevronDown size={17} />
         </button>
-        {open && (
-          <div className="admin-select-menu" role="listbox" aria-multiselectable="true">
+        {open && menuStyle && createPortal(
+          <div
+            ref={menuRef}
+            className={`admin-select-menu admin-select-menu-portal multiselect ${placement}`}
+            role="listbox"
+            aria-multiselectable="true"
+            style={menuStyle}
+          >
             {options.map((option) => {
               const checked = selected.includes(option.value);
               return (
@@ -2501,7 +2642,8 @@ function AdminActionMultiSelect({ field }: { field: AdminActionField }) {
                 </button>
               );
             })}
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
       {field.maxItems && <small className="field-hint">최대 {field.maxItems}개 · 현재 {selected.length}개 선택</small>}

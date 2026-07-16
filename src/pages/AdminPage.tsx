@@ -54,6 +54,7 @@ import {
 import { StatCard } from '../components/Cards';
 import {
   adminApi,
+  type AdminMarketCreationResult,
   type AdminStockCreationResult,
   type AdminMarketSimulationPayload,
   type AdminScenarioAutomationPayload,
@@ -179,6 +180,7 @@ export function AdminPage() {
   const [scenarioApplyResult, setScenarioApplyResult] = useState<ScenarioApplyResult | null>(null);
   const [seasonResetResult, setSeasonResetResult] = useState<SeasonResetResult | null>(null);
   const [seedStockRequest, setSeedStockRequest] = useState<Stock | null>(null);
+  const [savingSeedMarketId, setSavingSeedMarketId] = useState<string | null>(null);
   const [isSeedStockSaving, setIsSeedStockSaving] = useState(false);
   const [isSimulationSaving, setIsSimulationSaving] = useState(false);
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
@@ -308,6 +310,20 @@ export function AdminPage() {
         setActionRequest(null);
         return;
       }
+      if (actionRequest.section === 'markets' && actionRequest.action === '새 장/시장 추가' && hasAdminMarketCreationResult(result.data)) {
+        const creationResult = result.data;
+        setAdminMarkets((current) => upsertMarket(current, creationResult.market));
+        if (creationResult.seedSaved === false) {
+          notify(`장은 생성됐지만 기본 장 저장에 실패했습니다. ${creationResult.seedSaveError ?? '장 목록에서 다시 시도해주세요.'}`);
+        } else if (creationResult.seedSaved) {
+          notify(`${creationResult.market.name} 생성 및 기본 카탈로그 저장이 완료되었습니다.`);
+        } else {
+          notify(`${creationResult.market.name} 장이 생성되었습니다.`);
+        }
+        await Promise.allSettled([load(), refreshAdminData(true)]);
+        setActionRequest(null);
+        return;
+      }
       if (actionRequest.section === 'stocks' && actionRequest.action === '새 종목 상장' && hasAdminStockCreationResult(result.data)) {
         const creationResult = result.data;
         setAdminStocks((current) => upsertStock(current, creationResult.stock));
@@ -329,6 +345,26 @@ export function AdminPage() {
       notify(error instanceof Error ? error.message : '관리자 요청 처리에 실패했습니다.');
     } finally {
       setIsSubmittingAction(false);
+    }
+  };
+
+  const saveMarketToSeed = async (market: Market) => {
+    setSavingSeedMarketId(market.id);
+    try {
+      const updated = await adminApi.saveMarketToSeed(market.id);
+      setAdminMarkets((current) => upsertMarket(current, updated));
+      notify(`${updated.name}을(를) 관리자 기본 장으로 저장했습니다. 소속 종목은 별도로 저장해야 합니다.`);
+      const refreshResults = await Promise.allSettled([load(), refreshAdminData(true)]);
+      if (refreshResults.some((item) => item.status === 'rejected')) {
+        notify('기본 장 저장은 완료됐지만 일부 목록 새로고침에 실패했습니다.');
+      }
+    } catch (error) {
+      notify(formatMarketSeedError(error));
+      if (error instanceof ApiError && error.status === 404) {
+        await refreshAdminData(true);
+      }
+    } finally {
+      setSavingSeedMarketId(null);
     }
   };
 
@@ -500,14 +536,10 @@ export function AdminPage() {
         )}
         {activeSection === 'markets' && (
           <MarketsSection
-            rows={adminMarketsForView.map((market) => [
-              market.name,
-              `${market.stockCount}개`,
-              currency(market.marketCap),
-              compact(market.volume),
-              market.active ? '활성' : '비활성',
-            ])}
+            markets={adminMarketsForView}
             onAction={openActionRequest}
+            onSeedAction={(market) => void saveMarketToSeed(market)}
+            savingSeedMarketId={savingSeedMarketId}
           />
         )}
         {activeSection === 'stocks' && (
@@ -772,20 +804,88 @@ function SeasonSection({
   );
 }
 
-function MarketsSection({ rows, onAction }: { rows: Array<Array<ReactNode>>; onAction: (message: string) => void }) {
+function MarketsSection({
+  markets,
+  onAction,
+  onSeedAction,
+  savingSeedMarketId,
+}: {
+  markets: Market[];
+  onAction: (message: string) => void;
+  onSeedAction: (market: Market) => void;
+  savingSeedMarketId: string | null;
+}) {
+  const activeCount = markets.filter((market) => market.active).length;
+  const seedCount = markets.filter((market) => market.seedSource !== null).length;
+
   return (
-    <AdminWorkArea
-      summary={[
-        ['활성 장', `${rows.length}개`],
-        ['관리 상태', '정상'],
-        ['정렬 정책', '수동'],
-      ]}
-      actions={['새 장/시장 추가', '장/시장 수정', '장/시장 비활성화', '장/시장 삭제']}
-      onAction={onAction}
-      formTitle="장 추가 / 수정"
-      fields={['장 이름', '장 설명', '아이콘', '정렬 순서']}
-      table={{ columns: ['장 이름', '종목 수', '시가총액', '거래량', '상태'], rows }}
-    />
+    <>
+      <section className="panel admin-market-control-panel">
+        <div className="admin-market-control-head">
+          <div className="panel-title"><Building2 size={20} /><h2>장 운영 현황</h2></div>
+          <span>비활성 장을 포함한 전체 카탈로그</span>
+        </div>
+        <div className="admin-market-kpi-grid">
+          <SummaryItem label="전체 장" value={`${markets.length}개`} />
+          <SummaryItem label="활성 장" value={`${activeCount}개`} />
+          <SummaryItem label="기본 장" value={`${seedCount}개`} />
+          <SummaryItem label="시즌 한정" value={`${markets.length - seedCount}개`} />
+        </div>
+        <div className="admin-market-seed-note">
+          <DatabaseZap size={17} />
+          <span>기본 장으로 저장해도 소속 종목은 자동 저장되지 않습니다. 유지할 종목은 종목 관리에서 별도로 저장하세요.</span>
+        </div>
+        <ActionGrid actions={['새 장/시장 추가', '장/시장 수정', '장/시장 비활성화', '장/시장 삭제']} onAction={onAction} />
+      </section>
+
+      <section className="panel admin-market-list-panel">
+        <div className="admin-market-list-head">
+          <div className="panel-title"><ClipboardList size={20} /><h2>장 목록</h2></div>
+          <span>{markets.length.toLocaleString('ko-KR')}개</span>
+        </div>
+        <div className="admin-market-list">
+          {markets.length ? markets.map((market) => (
+            <article className="admin-market-item" key={market.id}>
+              <div className="admin-market-identity">
+                <span className="admin-market-icon"><Building2 size={21} /></span>
+                <div>
+                  <strong>{market.name}</strong>
+                  <span>{market.description}</span>
+                </div>
+              </div>
+              <div className="admin-market-metrics">
+                <span><small>종목 수</small><strong>{market.stockCount.toLocaleString('ko-KR')}개</strong></span>
+                <span><small>시가총액</small><strong>{currency(market.marketCap)}</strong></span>
+                <span><small>거래량</small><strong>{compact(market.volume)}</strong></span>
+              </div>
+              <span className={market.active ? 'admin-market-status active' : 'admin-market-status'}>
+                {market.active ? '활성' : '비활성'}
+              </span>
+              <div className="admin-market-seed-control">
+                <MarketSeedSourceStatus market={market} />
+                {market.seedSource === 'FILE' ? (
+                  <span className="seed-file-lock">파일에서 관리</span>
+                ) : market.seedSource === 'ADMIN' ? (
+                  <span className="seed-file-lock">기본 저장 완료</span>
+                ) : (
+                  <button
+                    className="table-command-button"
+                    type="button"
+                    disabled={savingSeedMarketId === market.id}
+                    onClick={() => onSeedAction(market)}
+                  >
+                    <DatabaseZap size={14} />
+                    {savingSeedMarketId === market.id ? '저장 중' : '기본 장으로 저장'}
+                  </button>
+                )}
+              </div>
+            </article>
+          )) : (
+            <div className="empty-state">서버에서 장 목록을 불러오지 못했습니다.</div>
+          )}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -1608,6 +1708,24 @@ function SeedSourceStatus({ stock }: { stock: Stock }) {
   );
 }
 
+function MarketSeedSourceStatus({ market }: { market: Market }) {
+  const sourceClass = market.seedSource?.toLowerCase() ?? 'seasonal';
+  const label = market.seedSource === 'FILE'
+    ? '파일 기본 장'
+    : market.seedSource === 'ADMIN'
+      ? '관리자 저장 장'
+      : '시즌 한정 장';
+  return (
+    <span
+      className={`seed-source-status ${sourceClass}`}
+      title={market.seededAt ? `마지막 저장 ${dateTime(market.seededAt)}` : undefined}
+    >
+      <strong>{label}</strong>
+      {market.seededAt && <small>{dateTime(market.seededAt)}</small>}
+    </span>
+  );
+}
+
 function buildAdminUserGrowth(dashboard?: AdminDashboard) {
   if (!dashboard?.userGrowthSeries.length) return userGrowthData;
   const maxUsers = Math.max(...dashboard.userGrowthSeries.map((point) => point.count), 1);
@@ -1633,6 +1751,15 @@ function hasAdminStockCreationResult(value: unknown): value is AdminStockCreatio
   return Boolean(value && typeof value === 'object' && 'stock' in value && 'seedSaved' in value);
 }
 
+function hasAdminMarketCreationResult(value: unknown): value is AdminMarketCreationResult {
+  return Boolean(value && typeof value === 'object' && 'market' in value && 'seedSaved' in value);
+}
+
+function upsertMarket(markets: Market[], market: Market) {
+  const exists = markets.some((item) => item.id === market.id);
+  return exists ? markets.map((item) => (item.id === market.id ? market : item)) : [market, ...markets];
+}
+
 function upsertStock(stocks: Stock[], stock: Stock) {
   const exists = stocks.some((item) => item.id === stock.id);
   return exists ? stocks.map((item) => (item.id === stock.id ? stock : item)) : [stock, ...stocks];
@@ -1648,6 +1775,17 @@ function formatStockSeedError(error: unknown) {
     if (error.status === 404) return '저장할 종목을 찾을 수 없습니다. 목록을 새로고침했습니다.';
   }
   return error instanceof Error ? error.message : '기본 종목 저장에 실패했습니다.';
+}
+
+function formatMarketSeedError(error: unknown) {
+  if (error instanceof ApiError) {
+    const backendMessage = getErrorMessage(error.payload, '').trim();
+    if (backendMessage) return backendMessage;
+    if (error.status === 401) return '로그인이 만료되었습니다. 다시 로그인해주세요.';
+    if (error.status === 403) return '기본 장 저장은 관리자만 실행할 수 있습니다.';
+    if (error.status === 404) return '저장할 장을 찾을 수 없습니다. 목록을 새로고침했습니다.';
+  }
+  return error instanceof Error ? error.message : '기본 장 저장에 실패했습니다.';
 }
 
 function buildDividendSchedulePatch(action: string, values: Record<string, string | boolean>): Partial<DividendSchedule> {
@@ -2818,11 +2956,12 @@ function getActionFields(
   if (section === 'markets') {
     if (action === '새 장/시장 추가') {
       return [
-        { name: 'marketName', label: '장 이름', placeholder: '예: 게임 IP장' },
+        { name: 'marketName', label: '장 이름', placeholder: '예: 게임 IP장', required: true },
         { name: 'marketDescription', label: '장 설명', type: 'textarea', placeholder: '장 소개와 가격 변동 기준을 입력하세요.' },
         { name: 'icon', label: '아이콘', type: 'select', options: ['Radio', 'Mic2', 'Sparkles', 'Clapperboard', 'Gamepad2'] },
         { name: 'sortOrder', label: '정렬 순서', type: 'number', placeholder: '5' },
         { name: 'active', label: '생성 즉시 활성화', type: 'checkbox', defaultValue: 'true' },
+        { name: 'persistToSeed', label: '다음 시즌에도 유지', type: 'checkbox' },
       ];
     }
     if (action === '장/시장 수정') {

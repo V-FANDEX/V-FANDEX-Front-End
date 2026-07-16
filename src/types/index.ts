@@ -18,6 +18,8 @@ export interface Market {
   volume: number;
   active: boolean;
   sortOrder: number;
+  seedSource: SeedSource;
+  seededAt: string | null;
 }
 
 export interface Stock {

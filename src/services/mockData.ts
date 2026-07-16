@@ -12,6 +12,8 @@ export const markets: Market[] = [
     volume: 1_284_200,
     active: true,
     sortOrder: 1,
+    seedSource: 'FILE',
+    seededAt: null,
   },
   {
     id: 'singer',
@@ -24,6 +26,8 @@ export const markets: Market[] = [
     volume: 842_110,
     active: true,
     sortOrder: 2,
+    seedSource: 'FILE',
+    seededAt: null,
   },
   {
     id: 'character',
@@ -36,6 +40,8 @@ export const markets: Market[] = [
     volume: 1_940_320,
     active: true,
     sortOrder: 3,
+    seedSource: 'FILE',
+    seededAt: null,
   },
   {
     id: 'anime',
@@ -48,6 +54,8 @@ export const markets: Market[] = [
     volume: 609_040,
     active: true,
     sortOrder: 4,
+    seedSource: 'FILE',
+    seededAt: null,
   },
 ];
 

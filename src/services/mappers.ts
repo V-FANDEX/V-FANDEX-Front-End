@@ -139,6 +139,8 @@ export function mapMarket(raw: unknown, stocks?: Stock[], index = 0): Market {
     volume: hasStockMetrics ? volume : toNumber(source.volume),
     active: Boolean(source.isActive ?? source.active ?? true),
     sortOrder: toNumber(source.sortOrder, index),
+    seedSource: normalizeSeedSource(source.seedSource),
+    seededAt: source.seededAt ? String(source.seededAt) : null,
   };
 }
 
@@ -699,7 +701,7 @@ function normalizeStockStatus(status: unknown, isListed: unknown, isTradingSuspe
   return isListed === false ? 'UNLISTED' : 'LISTED';
 }
 
-function normalizeSeedSource(value: unknown): Stock['seedSource'] {
+function normalizeSeedSource(value: unknown): Market['seedSource'] | Stock['seedSource'] {
   const source = String(value ?? '').toUpperCase();
   if (source === 'FILE' || source === 'ADMIN') return source;
   return null;

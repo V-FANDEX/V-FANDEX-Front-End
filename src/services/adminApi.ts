@@ -51,6 +51,12 @@ export interface AdminMarketPayload {
   isActive?: boolean;
 }
 
+export interface AdminMarketCreationResult {
+  market: Market;
+  seedSaved: boolean | null;
+  seedSaveError?: string;
+}
+
 export interface AdminStockPayload {
   marketId: string;
   name: string;
@@ -153,11 +159,13 @@ export const adminApi = {
 
   getMarkets: async (params: { includeInactive?: boolean } = {}): Promise<Market[]> =>
     (await apiClient<unknown[]>(withQuery('/admin/markets', { ...params }))).map((market, index) => mapMarket(market, undefined, index)),
-  createMarket: (body: AdminMarketPayload) =>
-    apiClient<unknown>('/admin/markets', { method: 'POST', body: jsonBody(body) }),
-  updateMarket: (id: string, body: Partial<AdminMarketPayload>) =>
-    apiClient<unknown>(`/admin/markets/${id}`, { method: 'PATCH', body: jsonBody(body) }),
+  createMarket: async (body: AdminMarketPayload): Promise<Market> =>
+    mapMarket(await apiClient<unknown>('/admin/markets', { method: 'POST', body: jsonBody(body) })),
+  updateMarket: async (id: string, body: Partial<AdminMarketPayload>): Promise<Market> =>
+    mapMarket(await apiClient<unknown>(`/admin/markets/${id}`, { method: 'PATCH', body: jsonBody(body) })),
   deleteMarket: (id: string) => apiClient<unknown>(`/admin/markets/${id}`, { method: 'DELETE' }),
+  saveMarketToSeed: async (id: string): Promise<Market> =>
+    mapMarket(await apiClient<unknown>(`/admin/markets/${id}/save-to-seed`, { method: 'POST' })),
 
   getStocks: async (params: { includeUnlisted?: boolean; marketId?: string; search?: string } = {}): Promise<Stock[]> =>
     (await apiClient<unknown[]>(withQuery('/admin/stocks', { ...params }))).map(mapStock),
@@ -232,13 +240,26 @@ interface AdminDividendSettingsPayload {
 async function submitAdminAction({ section, action, values }: AdminActionPayload) {
   if (section === 'markets') {
     if (action === '새 장/시장 추가') {
-      return adminApi.createMarket({
+      const market = await adminApi.createMarket({
         name: String(values.marketName || ''),
         description: optionalString(values.marketDescription),
         iconUrl: optionalString(values.icon),
         sortOrder: toNumber(values.sortOrder),
         isActive: values.active === true,
       });
+      if (values.persistToSeed !== true) {
+        return { market, seedSaved: null } satisfies AdminMarketCreationResult;
+      }
+      try {
+        const seededMarket = await adminApi.saveMarketToSeed(market.id);
+        return { market: seededMarket, seedSaved: true } satisfies AdminMarketCreationResult;
+      } catch (error) {
+        return {
+          market,
+          seedSaved: false,
+          seedSaveError: error instanceof Error ? error.message : '기본 장 저장에 실패했습니다.',
+        } satisfies AdminMarketCreationResult;
+      }
     }
     if (action === '장/시장 수정') {
       return adminApi.updateMarket(requiredId(firstFilled(values.marketId, values.targetMarket), '수정할 장'), {

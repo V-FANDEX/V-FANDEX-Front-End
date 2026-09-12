@@ -1,5 +1,5 @@
 import { Newspaper } from 'lucide-react';
-import { ScenarioCard } from '../components/Cards';
+import { EmptyState, ScenarioCard } from '../components/Cards';
 import { useFandexStore } from '../store/useFandexStore';
 import { getScenarioTargetLabels } from '../utils/scenarioLabels';
 
@@ -9,22 +9,22 @@ export function ScenariosPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <span className="eyebrow">GPT Scenario Log</span>
-        <h1>시나리오 / 뉴스 로그</h1>
-        <p>가격이 왜 움직였는지 이해할 수 있도록 영향 종목과 강도를 함께 표시합니다.</p>
+        <span className="eyebrow">Market News</span>
+        <h1>뉴스 / 이벤트</h1>
+        <p>Backend가 공개한 시장 이벤트입니다. 내부 판단용 감성·중요도·충격 점수는 표시하지 않습니다.</p>
       </header>
       <section className="scenario-grid">
-        {scenarios.map((scenario) => (
+        {scenarios.length ? scenarios.map((scenario) => (
           <ScenarioCard
             key={scenario.id}
             scenario={scenario}
             stockNames={getScenarioTargetLabels(scenario, stocks, markets)}
           />
-        ))}
+        )) : <EmptyState text="공개된 뉴스나 시장 이벤트가 없습니다." />}
       </section>
       <section className="panel">
-        <div className="panel-title"><Newspaper size={20} /><h2>생성 구분</h2></div>
-        <p className="panel-copy">메인 시나리오는 시장 흐름, BIG 시나리오는 강한 가격 충격, 소규모 시나리오는 종목별 미세 변동에 사용됩니다.</p>
+        <div className="panel-title"><Newspaper size={20} /><h2>가격 형성 원칙</h2></div>
+        <p className="panel-copy">이벤트 자체가 가격을 바꾸지 않습니다. 사용자와 AI의 주문, Backend Market Engine의 체결 결과가 가격에 반영되어야 합니다.</p>
       </section>
     </div>
   );

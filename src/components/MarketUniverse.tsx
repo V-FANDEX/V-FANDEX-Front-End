@@ -3,19 +3,17 @@ import * as THREE from 'three';
 
 interface MarketUniverseProps {
   activeMarket: number;
-  sentiment: number;
-  volatility: number;
 }
 
 const marketColors = [0x38d5ff, 0x7c5cff, 0x42e3a3, 0xff647c];
 
-export function MarketUniverse({ activeMarket, sentiment, volatility }: MarketUniverseProps) {
+export function MarketUniverse({ activeMarket }: MarketUniverseProps) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const stateRef = useRef({ activeMarket, sentiment, volatility });
+  const stateRef = useRef({ activeMarket });
 
   useEffect(() => {
-    stateRef.current = { activeMarket, sentiment, volatility };
-  }, [activeMarket, sentiment, volatility]);
+    stateRef.current = { activeMarket };
+  }, [activeMarket]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -117,9 +115,7 @@ export function MarketUniverse({ activeMarket, sentiment, volatility }: MarketUn
 
     const animate = () => {
       frame += 0.012;
-      const { activeMarket: currentMarket, sentiment: currentSentiment, volatility: currentVolatility } = stateRef.current;
-      const sentimentScale = 0.75 + currentSentiment / 160;
-      const volatilityScale = 0.75 + currentVolatility / 120;
+      const { activeMarket: currentMarket } = stateRef.current;
 
       root.rotation.y += 0.0025;
       root.rotation.x += (pointer.y * 0.16 - root.rotation.x) * 0.025;
@@ -134,8 +130,8 @@ export function MarketUniverse({ activeMarket, sentiment, volatility }: MarketUn
 
       bars.forEach(({ bar, material, baseHeight, market }, index) => {
         const targetHeight =
-          baseHeight * (market === currentMarket ? 1.55 : 0.92) * sentimentScale +
-          Math.sin(frame * (1.5 + currentVolatility / 90) + index) * 0.15 * volatilityScale;
+          baseHeight * (market === currentMarket ? 1.55 : 0.92) +
+          Math.sin(frame * 1.8 + index) * 0.15;
         bar.scale.y += (Math.max(0.2, targetHeight) - bar.scale.y) * 0.08;
         material.emissiveIntensity += ((market === currentMarket ? 0.55 : 0.12) - material.emissiveIntensity) * 0.06;
       });

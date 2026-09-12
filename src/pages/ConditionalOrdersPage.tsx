@@ -1,10 +1,23 @@
 import { BellRing, X } from 'lucide-react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { EmptyState } from '../components/Cards';
 import { useFandexStore } from '../store/useFandexStore';
 import { currency, dateTime } from '../utils/format';
 
 export function ConditionalOrdersPage() {
   const { conditionalOrders, stocks, cancelConditionalOrder } = useFandexStore();
+  const [cancellingOrderId, setCancellingOrderId] = useState<string>();
+
+  const cancel = async (orderId: string) => {
+    if (cancellingOrderId) return;
+    setCancellingOrderId(orderId);
+    try {
+      await cancelConditionalOrder(orderId);
+    } finally {
+      setCancellingOrderId(undefined);
+    }
+  };
 
   return (
     <div className="page">
@@ -18,7 +31,7 @@ export function ConditionalOrdersPage() {
           <div className="stock-row table-head">
             <span>종목</span><span>조건</span><span>수량</span><span>상태</span><span>기록</span><span />
           </div>
-          {conditionalOrders.map((order) => {
+          {conditionalOrders.length ? conditionalOrders.map((order) => {
             const stock = stocks.find((item) => item.id === order.stockId);
             const statusLabel = formatOrderStatus(order.status, order.active);
             return (
@@ -33,12 +46,12 @@ export function ConditionalOrdersPage() {
                 <strong className="order-metric" data-label="수량">{order.quantity.toLocaleString('ko-KR')}주</strong>
                 <span className="order-metric" data-label="상태"><span className={statusLabel.className}>{statusLabel.text}</span></span>
                 <small className="order-metric" data-label="기록">{order.executedAt ? `체결 ${dateTime(order.executedAt)}` : `등록 ${dateTime(order.createdAt)}`}</small>
-                <button className="icon-button order-cancel-button" disabled={!order.active} onClick={() => void cancelConditionalOrder(order.id)} aria-label="조건 주문 취소">
+                <button className="icon-button order-cancel-button" disabled={!order.active || Boolean(cancellingOrderId)} onClick={() => void cancel(order.id)} aria-label="조건 주문 취소">
                   <X size={18} />
                 </button>
               </div>
             );
-          })}
+          }) : <EmptyState text="등록된 조건 주문이 없습니다." />}
         </div>
       </section>
       <section className="panel">

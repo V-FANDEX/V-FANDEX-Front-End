@@ -5,6 +5,7 @@ import type {
   ScenarioLog,
   SeasonInfo,
   Stock,
+  StockQuote,
   StockChartPoint,
   StockChartInterval,
   Transaction,
@@ -58,6 +59,11 @@ export const fandexApi = {
     return stocks ? enrichMarkets(markets, stocks) : markets.sort((a, b) => a.sortOrder - b.sortOrder);
   },
 
+  async getMarket(id: string) {
+    const market = await apiClient<unknown>(`/markets/${id}`);
+    return market ? mapMarket(market) : undefined;
+  },
+
   async getStocks(params: StockQuery = {}) {
     const stocks = listFrom(await apiClient<unknown>(withQuery('/stocks', { ...params }))).map(mapStock);
     return stocks.sort((a, b) => b.volume - a.volume);
@@ -71,6 +77,10 @@ export const fandexApi = {
   async getStock(id: string) {
     const stock = await apiClient<unknown>(`/stocks/${id}`);
     return stock ? mapStock(stock) : undefined;
+  },
+
+  async getStockQuotes(marketId?: string): Promise<StockQuote[]> {
+    return listFrom(await apiClient<unknown>(withQuery('/stocks/quotes', { marketId }))).map(mapStockQuote);
   },
 
   async getStockChart(id: string, interval: StockChartInterval = 'day', take = 30): Promise<StockChartPoint[]> {
@@ -203,6 +213,25 @@ export const fandexApi = {
     }
   },
 };
+
+function mapStockQuote(raw: unknown): StockQuote {
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    id: String(source.id ?? ''),
+    marketId: String(source.marketId ?? ''),
+    name: String(source.name ?? ''),
+    currentPrice: decimalString(source.currentPrice),
+    previousPrice: decimalString(source.previousPrice),
+    changeRate: decimalString(source.changeRate),
+    priceAsOf: String(source.priceAsOf ?? ''),
+  };
+}
+
+function decimalString(value: unknown) {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '0';
+}
 
 function listFrom(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;

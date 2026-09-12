@@ -111,22 +111,9 @@ export function mapMarket(raw: unknown, stocks?: Stock[], index = 0): Market {
   const id = String(source.id ?? source.marketId ?? '');
   const marketStocks = stocks?.filter((stock) => stock.marketId === id) ?? [];
   const sourceCount = asRecord(source._count);
-  const marketCap = marketStocks.reduce((sum, stock) => sum + stock.marketCap, 0);
-  const volume = marketStocks.reduce((sum, stock) => sum + stock.volume, 0);
-  const previousMarketCap = marketStocks.reduce((sum, stock) => {
-    const circulatingSupply = stock.circulatingSupply
-      ?? (stock.price > 0 ? stock.marketCap / stock.price : 0);
-    return sum + stock.previousClose * circulatingSupply;
-  }, 0);
-  const averageChangeRate = marketStocks.length
-    ? marketStocks.reduce((sum, stock) => sum + stock.changeRate, 0) / marketStocks.length
-    : 0;
-  const changeRate = previousMarketCap > 0
-    ? ((marketCap - previousMarketCap) / previousMarketCap) * 100
-    : marketStocks.length
-      ? averageChangeRate
-      : toNumber(source.changeRate ?? source.todayChangeRate);
-  const hasStockMetrics = marketStocks.length > 0;
+  const metricsAvailable = typeof source.metricsAvailable === 'boolean'
+    ? source.metricsAvailable
+    : source.marketCap !== undefined || source.volume !== undefined || source.changeRate !== undefined;
 
   return {
     id,
@@ -134,9 +121,10 @@ export function mapMarket(raw: unknown, stocks?: Stock[], index = 0): Market {
     description: String(source.description ?? '운영자가 등록한 가상 팬덤 시장입니다.'),
     icon: String(source.icon ?? source.iconUrl ?? defaultMarketIcons[index % defaultMarketIcons.length]),
     stockCount: Math.max(toNumber(source.stockCount ?? sourceCount.stocks), marketStocks.length),
-    marketCap: hasStockMetrics ? marketCap : toNumber(source.marketCap),
-    changeRate,
-    volume: hasStockMetrics ? volume : toNumber(source.volume),
+    marketCap: toNumber(source.marketCap),
+    changeRate: toNumber(source.changeRate ?? source.todayChangeRate),
+    volume: toNumber(source.volume),
+    metricsAvailable,
     active: Boolean(source.isActive ?? source.active ?? true),
     sortOrder: toNumber(source.sortOrder, index),
     seedSource: normalizeSeedSource(source.seedSource),
@@ -161,9 +149,7 @@ export function mapStock(raw: unknown): Stock {
     source.previousPrice ?? source.previousClose ?? source.prevPrice ?? source.openPrice ?? source.initialPrice,
     currentPrice,
   );
-  const changeRate = previousClose > 0
-    ? ((currentPrice - previousClose) / previousClose) * 100
-    : toNumber(source.changeRate ?? source.fluctuationRate);
+  const changeRate = toNumber(source.changeRate ?? source.fluctuationRate);
   const totalSupply = toNumber(source.totalSupply ?? source.circulatingSupply, 0);
   const circulatingSupply = toNumber(source.circulatingSupply, totalSupply);
   const tags = normalizeTags(source.tags);
@@ -173,14 +159,14 @@ export function mapStock(raw: unknown): Stock {
     marketId: String(source.marketId ?? market?.id ?? ''),
     market,
     name: String(source.name ?? '이름 없는 종목'),
-    symbol: String(source.symbol ?? createSymbol(String(source.name ?? source.id ?? 'VF'))),
+    symbol: source.symbol ? String(source.symbol) : '',
     initialPrice: toNumber(source.initialPrice, currentPrice),
     price: currentPrice,
     previousClose,
     changeRate,
     volume: toNumber(source.volume ?? source.tradeVolume),
     tradeValue: toNumber(source.tradeValue),
-    marketCap: toNumber(source.marketCap, currentPrice * circulatingSupply),
+    marketCap: toNumber(source.marketCap),
     dividendEnabled: Boolean(source.dividendEnabled ?? false),
     dividendRate: toNumber(source.baseDividendRate ?? source.dividendRate),
     description: String(source.description ?? '등록된 설명이 없습니다.'),
@@ -732,13 +718,6 @@ function normalizeTransactionType(value: unknown): Transaction['type'] {
   if (type.includes('SELL')) return 'sell';
   if (type.includes('DIVIDEND')) return 'dividend';
   return 'buy';
-}
-
-function createSymbol(value: string) {
-  return value
-    .replace(/[^a-zA-Z0-9가-힣]/g, '')
-    .slice(0, 4)
-    .toUpperCase() || 'VF';
 }
 
 function formatChartLabel(value: string, index: number) {

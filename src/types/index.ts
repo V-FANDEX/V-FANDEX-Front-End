@@ -6,6 +6,141 @@ export type StockStatus = 'LISTED' | 'SUSPENDED' | 'UNLISTED' | string;
 export type StockChartInterval = 'day' | 'hour' | 'minute';
 export type AiStrategyType = 'AGGRESSIVE' | 'STABLE' | 'RANDOM' | 'MARKET_FOCUSED';
 export type SeedSource = 'FILE' | 'ADMIN' | null;
+export type DecimalValue = string;
+export type MarketStatus = 'OPEN' | 'CLOSED' | 'HALTED' | string;
+export type OrderSide = 'BUY' | 'SELL';
+export type OrderType = 'MARKET' | 'LIMIT';
+export type OrderStatus =
+  | 'PENDING'
+  | 'OPEN'
+  | 'PARTIALLY_FILLED'
+  | 'FILLED'
+  | 'CANCELED'
+  | 'REJECTED';
+export type WebSocketConnectionStatus = 'LIVE' | 'RECONNECTING' | 'OFFLINE';
+
+/**
+ * Backend decimal values stay as strings at the transport boundary. Existing
+ * screens still use mapped numbers; new market-engine APIs must use these
+ * decimal-safe contracts instead of coercing values to JavaScript Number.
+ */
+export interface StockQuote {
+  id: string;
+  marketId: string;
+  name: string;
+  currentPrice: DecimalValue;
+  previousPrice: DecimalValue;
+  changeRate: DecimalValue;
+  priceAsOf: string;
+}
+
+export interface OrderBookLevel {
+  price: DecimalValue;
+  quantity: DecimalValue;
+  cumulativeQuantity?: DecimalValue;
+}
+
+export interface OrderBook {
+  stockId: string;
+  bids: OrderBookLevel[];
+  asks: OrderBookLevel[];
+  sequence: string;
+  updatedAt: string;
+}
+
+export interface Trade {
+  id: string;
+  stockId: string;
+  price: DecimalValue;
+  quantity: DecimalValue;
+  side?: OrderSide;
+  executedAt: string;
+}
+
+export interface Candle {
+  timestamp: string;
+  open: DecimalValue;
+  high: DecimalValue;
+  low: DecimalValue;
+  close: DecimalValue;
+  volume: DecimalValue;
+}
+
+export interface OrderRequest {
+  stockId: string;
+  side: OrderSide;
+  type: OrderType;
+  quantity: DecimalValue;
+  price?: DecimalValue;
+  idempotencyKey?: string;
+}
+
+export interface Order extends OrderRequest {
+  id: string;
+  status: OrderStatus;
+  filledQuantity: DecimalValue;
+  remainingQuantity: DecimalValue;
+  averageFillPrice?: DecimalValue;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Position {
+  stockId: string;
+  quantity: DecimalValue;
+  averagePrice: DecimalValue;
+  currentPrice: DecimalValue;
+  marketValue: DecimalValue;
+  unrealizedProfit: DecimalValue;
+  returnRate: DecimalValue;
+}
+
+export interface Portfolio {
+  totalAssets: DecimalValue;
+  cash: DecimalValue;
+  stockValue: DecimalValue;
+  unrealizedProfit: DecimalValue;
+  realizedProfit: DecimalValue;
+  positions: Position[];
+  asOf: string;
+}
+
+export interface MarketEvent {
+  id: string;
+  title: string;
+  content: string;
+  occurredAt: string;
+  marketIds: string[];
+  stockIds: string[];
+  verification: 'OFFICIAL' | 'RUMOR' | 'UNVERIFIED';
+}
+
+export interface AgentSummary {
+  id: string;
+  name: string;
+  strategy?: string;
+  primaryMarketId?: string;
+  totalAssets: DecimalValue;
+  returnRate: DecimalValue;
+  rank: number;
+}
+
+export interface MarketIndex {
+  marketId: string;
+  value: DecimalValue;
+  previousClose: DecimalValue;
+  changeRate: DecimalValue;
+  tradeValue: DecimalValue;
+  asOf: string;
+}
+
+export interface WebSocketMessage<TPayload = unknown> {
+  type: string;
+  payload: TPayload;
+  channel?: string;
+  sequence?: string;
+  sentAt?: string;
+}
 
 export interface Market {
   id: MarketCategory;
@@ -16,6 +151,7 @@ export interface Market {
   marketCap: number;
   changeRate: number;
   volume: number;
+  metricsAvailable: boolean;
   active: boolean;
   sortOrder: number;
   seedSource: SeedSource;

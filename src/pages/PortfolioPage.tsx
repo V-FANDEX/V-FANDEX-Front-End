@@ -1,5 +1,4 @@
 import { History, PieChart } from 'lucide-react';
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState, StatCard } from '../components/Cards';
 import { useFandexStore } from '../store/useFandexStore';
 import { currency, dateTime } from '../utils/format';
@@ -16,10 +15,6 @@ export function PortfolioPage() {
   }) ?? [];
   const stockValue = holdingRows.reduce((sum, item) => sum + item.value, 0);
   const totalAssetValue = user?.totalAssetValue ?? (user?.cash ?? 0) + stockValue;
-  const assetHistory = Array.from({ length: 10 }, (_, index) => ({
-    day: `${index + 1}일`,
-    value: Math.round(totalAssetValue * (0.92 + index * 0.009 + Math.sin(index) * 0.012)),
-  }));
 
   return (
     <div className="page">
@@ -37,16 +32,7 @@ export function PortfolioPage() {
       <section className="dashboard-grid">
         <article className="panel wide">
           <div className="panel-title"><PieChart size={20} /><h2>자산 변화 그래프</h2></div>
-          <div className="chart-box">
-            <ResponsiveContainer width="100%" height={270}>
-              <AreaChart data={assetHistory}>
-                <XAxis dataKey="day" tickLine={false} axisLine={false} />
-                <YAxis hide />
-                <Tooltip formatter={(value) => currency(Number(value))} />
-                <Area dataKey="value" stroke="#7c5cff" fill="#7c5cff33" strokeWidth={3} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          <EmptyState text="자산 히스토리 API가 제공되면 실제 시계열을 표시합니다." />
         </article>
         <article className="panel">
           <div className="panel-title"><History size={20} /><h2>거래 내역</h2></div>

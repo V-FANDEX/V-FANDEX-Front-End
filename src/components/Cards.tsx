@@ -28,7 +28,7 @@ export function StockRow({
         <img src={stock.imageUrl} alt="" />
         <span>
           <strong>{stock.name}</strong>
-          <small>{stock.symbol} · {stock.tags.join(' / ')}</small>
+          <small>{stock.symbol || '심볼 미제공'}{stock.tags.length ? ` · ${stock.tags.join(' / ')}` : ''}</small>
         </span>
       </Link>
       <strong className="stock-list-metric" data-label="현재가">{currency(stock.price)}</strong>
@@ -69,14 +69,13 @@ export function ScenarioCard({ scenario, stockNames }: { scenario: ScenarioLog; 
   return (
     <article className="scenario-card">
       <div className="scenario-top">
-        <span className={`pill ${scenario.type === 'big' ? 'purple' : 'cyan'}`}>{scenario.type.toUpperCase()}</span>
+        <span className="pill cyan">시장 이벤트</span>
         <small>{dateTime(scenario.occurredAt)}</small>
       </div>
       <h3>{scenario.title}</h3>
       <p>{scenario.description}</p>
       <div className="scenario-meta">
-        <Change value={scenario.direction === 'up' ? scenario.strength / 10 : -scenario.strength / 10} />
-        <span>영향 대상 {stockNames.join(', ')}</span>
+        <span>관련 대상 {stockNames.join(', ')}</span>
       </div>
     </article>
   );

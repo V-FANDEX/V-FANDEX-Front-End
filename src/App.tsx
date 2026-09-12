@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { AdminPage } from './pages/AdminPage';
+import { AgentsPage } from './pages/AgentsPage';
 import { ConditionalOrdersPage } from './pages/ConditionalOrdersPage';
 import { DividendsPage } from './pages/DividendsPage';
 import { HomePage } from './pages/HomePage';
@@ -60,9 +61,13 @@ export default function App() {
         <Route path="orders" element={<ConditionalOrdersPage />} />
         <Route path="portfolio" element={<PortfolioPage />} />
         <Route path="dividends" element={<DividendsPage />} />
-        <Route path="rankings" element={<RankingsPage />} />
-        <Route path="scenarios" element={<ScenariosPage />} />
+        <Route path="ranking" element={<RankingsPage />} />
+        <Route path="rankings" element={<Navigate to="/ranking" replace />} />
+        <Route path="agents" element={<AgentsPage />} />
+        <Route path="news" element={<ScenariosPage />} />
+        <Route path="scenarios" element={<Navigate to="/news" replace />} />
         <Route path="admin" element={user?.role === 'admin' ? <AdminPage /> : <Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

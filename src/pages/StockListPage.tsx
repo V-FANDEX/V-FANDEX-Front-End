@@ -17,6 +17,7 @@ export function StockListPage() {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [remoteStocks, setRemoteStocks] = useState<Stock[]>([]);
   const [loadingStocks, setLoadingStocks] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const market = markets.find((item) => item.id === marketId);
   const sourceStocks = remoteStocks.length || loadingStocks
     ? remoteStocks
@@ -25,13 +26,17 @@ export function StockListPage() {
   useEffect(() => {
     if (!marketId) return;
     setLoadingStocks(true);
+    setLoadError(false);
     const request = query.trim()
       ? fandexApi.getStocks({ marketId, search: query.trim() })
       : fandexApi.getMarketStocks(marketId);
 
     request
       .then(setRemoteStocks)
-      .catch(() => setRemoteStocks([]))
+      .catch(() => {
+        setRemoteStocks([]);
+        setLoadError(true);
+      })
       .finally(() => setLoadingStocks(false));
   }, [marketId, query]);
 
@@ -88,7 +93,7 @@ export function StockListPage() {
           <div className="stock-row table-head">
             <span>종목</span><span>현재가</span><span>등락률</span><span>거래량</span><span>시가총액</span><span>상태</span><span>배당</span><span />
           </div>
-          {loadingStocks && !visibleStocks.length ? <EmptyState text="종목을 불러오는 중입니다." /> : visibleStocks.length ? visibleStocks.map((stock) => (
+          {loadingStocks && !visibleStocks.length ? <EmptyState text="종목을 불러오는 중입니다." /> : loadError ? <EmptyState text="종목 API 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요." /> : visibleStocks.length ? visibleStocks.map((stock) => (
             <StockRow
               key={stock.id}
               stock={stock}

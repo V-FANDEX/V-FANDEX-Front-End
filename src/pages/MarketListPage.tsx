@@ -1,7 +1,7 @@
 import { ArrowRight, Clapperboard, Mic2, Radio, Sparkles } from 'lucide-react';
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Change } from '../components/Cards';
+import { Change, EmptyState } from '../components/Cards';
 import { enrichMarkets } from '../services/mappers';
 import { useFandexStore } from '../store/useFandexStore';
 import { compact, currency } from '../utils/format';
@@ -21,7 +21,7 @@ export function MarketListPage() {
         <p>코스피/코스닥처럼 분리된 팬덤 기반 시장을 탐색하세요.</p>
       </header>
       <section className="market-grid">
-        {marketSummaries.map((market) => {
+        {marketSummaries.length ? marketSummaries.map((market) => {
           const Icon = icons[market.icon as keyof typeof icons] ?? Sparkles;
           return (
             <Link className="market-card" key={market.id} to={`/markets/${market.id}`}>
@@ -32,14 +32,14 @@ export function MarketListPage() {
               </div>
               <dl>
                 <div><dt>종목 수</dt><dd>{market.stockCount}</dd></div>
-                <div><dt>시가총액</dt><dd>{currency(market.marketCap)}</dd></div>
-                <div><dt>거래량</dt><dd>{compact(market.volume)}</dd></div>
-                <div><dt>오늘</dt><dd><Change value={market.changeRate} /></dd></div>
+                <div><dt>시가총액</dt><dd>{market.metricsAvailable ? currency(market.marketCap) : '-'}</dd></div>
+                <div><dt>거래량</dt><dd>{market.metricsAvailable ? compact(market.volume) : '-'}</dd></div>
+                <div><dt>시장 지수</dt><dd>{market.metricsAvailable ? <Change value={market.changeRate} /> : 'API 연동 대기'}</dd></div>
               </dl>
               <ArrowRight className="card-arrow" size={20} />
             </Link>
           );
-        })}
+        }) : <EmptyState text="Backend에서 제공된 Market이 없습니다." />}
       </section>
     </div>
   );

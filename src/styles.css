@@ -1609,6 +1609,17 @@ main {
   margin-inline: -4px;
 }
 
+.market-chart-unavailable {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  color: var(--muted);
+  text-align: center;
+  border: 1px dashed rgba(152, 171, 197, 0.2);
+  background: rgba(255, 255, 255, 0.018);
+}
+
 .market-graph-meta {
   display: grid;
   gap: 7px;
@@ -2090,6 +2101,17 @@ textarea {
 .order-summary strong {
   min-width: 0;
   text-align: right;
+}
+
+.order-notice {
+  margin: 0 0 14px;
+  font-size: 12px;
+}
+
+.form-error {
+  margin: 0 0 12px;
+  color: var(--red);
+  font-size: 13px;
 }
 
 .modal-backdrop {

@@ -11,6 +11,7 @@ import type {
   ScenarioLog,
   SeasonInfo,
   Stock,
+  StockQuote,
   Transaction,
   UserAccount,
 } from '../types';
@@ -57,18 +58,19 @@ export const useFandexStore = create<FandexState>((set, get) => ({
     try {
       const publicResults = await Promise.allSettled([
         fandexApi.getStocks(),
+        fandexApi.getStockQuotes(),
         fandexApi.getMarkets(),
         fandexApi.getSeason(),
         fandexApi.getRankings(),
         fandexApi.getScenarios(),
       ]);
-      const stocksData = settledValue(publicResults[0], []);
-      const marketsData = settledValue(publicResults[1], []);
-      const seasonData = settledValue(publicResults[2], undefined);
-      const rankingData = settledValue(publicResults[3], []);
-      const scenarioData = settledValue(publicResults[4], []);
+      const stocksData = applyQuotes(settledValue(publicResults[0], []), settledValue(publicResults[1], []));
+      const marketsData = settledValue(publicResults[2], []);
+      const seasonData = settledValue(publicResults[3], undefined);
+      const rankingData = settledValue(publicResults[4], []);
+      const scenarioData = settledValue(publicResults[5], []);
       const failedPublicData = publicResults
-        .map((result, index) => (result.status === 'rejected' ? ['종목', '시장', '시즌', '랭킹', '시나리오'][index] : null))
+        .map((result, index) => (result.status === 'rejected' ? ['종목', '시세', '시장', '시즌', '랭킹', '시나리오'][index] : null))
         .filter((label): label is string => Boolean(label));
       const [currentUser, portfolio, watchlist, orderData, tradeData, dividendData, scheduleData, myRanking] =
         await Promise.all([
@@ -197,7 +199,7 @@ export const useFandexStore = create<FandexState>((set, get) => ({
         await fandexApi.sellStock(payload);
       }
 
-      set({ toast: type === 'buy' ? '매수 주문이 체결되었습니다.' : '매도 주문이 체결되었습니다.' });
+      set({ toast: type === 'buy' ? '매수 요청이 처리되었습니다.' : '매도 요청이 처리되었습니다.' });
       await get().load();
     } catch (error) {
       set({ toast: errorMessage(error) });
@@ -258,6 +260,20 @@ export const useFandexStore = create<FandexState>((set, get) => ({
   notify: (message) => set({ toast: message }),
   clearToast: () => set({ toast: undefined }),
 }));
+
+function applyQuotes(stocks: Stock[], quotes: StockQuote[]) {
+  const quoteById = new Map(quotes.map((quote) => [quote.id, quote]));
+  return stocks.map((stock) => {
+    const quote = quoteById.get(stock.id);
+    if (!quote) return stock;
+    return {
+      ...stock,
+      price: Number(quote.currentPrice),
+      previousClose: Number(quote.previousPrice),
+      changeRate: Number(quote.changeRate),
+    };
+  });
+}
 
 async function safe<T>(promise: Promise<T>, fallback?: T) {
   try {

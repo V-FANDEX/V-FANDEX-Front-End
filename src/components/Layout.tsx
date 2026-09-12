@@ -12,7 +12,8 @@ const navItems = [
   { to: '/portfolio', label: '포트폴리오' },
   { to: '/orders', label: '조건주문' },
   { to: '/dividends', label: '배당' },
-  { to: '/scenarios', label: '뉴스' },
+  { to: '/news', label: '뉴스' },
+  { to: '/agents', label: 'AI 투자자' },
 ];
 
 export function Layout() {
@@ -118,7 +119,7 @@ export function Layout() {
               {item.label}
             </NavLink>
           ))}
-          <NavLink to="/rankings" className="rank-link" onClick={() => setOpen(false)}>
+          <NavLink to="/ranking" className="rank-link" onClick={() => setOpen(false)}>
             <Medal size={16} /> 랭킹
           </NavLink>
           {user?.role === 'admin' && (

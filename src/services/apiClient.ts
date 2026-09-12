@@ -3,6 +3,10 @@ const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | und
 export const API_BASE_URL =
   viteEnv?.VITE_API_BASE_URL?.replace(/\/$/, '') ?? 'https://v-fandex-back-end.onrender.com';
 
+// The current backend does not expose WebSocket transport yet. Keep this
+// optional so production never invents a localhost connection or retry loop.
+export const WS_URL = viteEnv?.VITE_WS_URL?.replace(/\/$/, '');
+
 export const AUTH_TOKEN_KEY = 'v-fandex-access-token';
 
 export class ApiError extends Error {

@@ -1,8 +1,8 @@
-import { Activity, CalendarDays, Clock3, Heart, Info, ReceiptText, Timer } from 'lucide-react';
+import { CalendarDays, Clock3, Heart, Info, ReceiptText, Timer } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Change, ScenarioCard, StatCard } from '../components/Cards';
+import { Change, EmptyState, ScenarioCard, StatCard } from '../components/Cards';
 import { TradePanel } from '../components/TradePanel';
 import { fandexApi } from '../services/fandexApi';
 import { useFandexStore } from '../store/useFandexStore';
@@ -36,10 +36,11 @@ export function StockDetailPage() {
   const [stockChecked, setStockChecked] = useState(false);
   const [remoteChart, setRemoteChart] = useState<StockChartPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState(false);
   const stock = stocks.find((item) => item.id === stockId) ?? remoteStock;
   const chart = useMemo(
-    () => (stock ? getChartForRange(remoteChart, stock, chartRange) : []),
-    [chartRange, remoteChart, stock],
+    () => getChartForRange(remoteChart, chartRange),
+    [chartRange, remoteChart],
   );
 
   useEffect(() => {
@@ -67,10 +68,14 @@ export function StockDetailPage() {
   useEffect(() => {
     if (!stockId) return;
     setChartLoading(true);
+    setChartError(false);
     fandexApi
       .getStockChart(stockId, chartRange, chartRange === 'day' ? 30 : chartRange === 'hour' ? 24 : 60)
       .then(setRemoteChart)
-      .catch(() => setRemoteChart([]))
+      .catch(() => {
+        setRemoteChart([]);
+        setChartError(true);
+      })
       .finally(() => setChartLoading(false));
   }, [chartRange, stockId]);
 
@@ -112,11 +117,12 @@ export function StockDetailPage() {
         </button>
       </section>
       <section className="stat-grid">
-        <StatCard label="현재 가격" value={currency(stock.price)} hint={stock.symbol} />
+        <StatCard label="현재 가격" value={currency(stock.price)} hint={stock.symbol || '심볼 미제공'} />
         <StatCard label="전일 대비" value={`${stock.price - stock.previousClose > 0 ? '+' : ''}${currency(stock.price - stock.previousClose)}`} hint={`${stock.changeRate.toFixed(2)}%`} />
         <StatCard label="최근 거래량" value={compact(stock.volume)} />
         <StatCard label="거래대금" value={currency(stock.tradeValue)} />
         <StatCard label="시가총액" value={currency(stock.marketCap)} />
+        <StatCard label="Market 운영 상태" value={market?.active ? 'ACTIVE' : 'INACTIVE'} />
         <StatCard label="상장 상태" value={formatStockStatus(stock.status)} />
         <StatCard label="평가 손익" value={currency(pnl)} hint={holding ? `${holding.quantity}주 보유` : '미보유'} />
       </section>
@@ -125,7 +131,7 @@ export function StockDetailPage() {
           <div className="stock-chart-head">
             <div>
               <div className="panel-title"><ReceiptText size={20} /><h2>가격 차트</h2><Change value={chartMoveRate} /></div>
-              <p className="panel-copy">{stock.symbol} 가격 흐름 · {activeRange.caption} 단위 {chartLoading ? '· 불러오는 중' : ''}</p>
+              <p className="panel-copy">{stock.symbol || stock.name} 가격 흐름 · {activeRange.caption} 단위 {chartLoading ? '· 불러오는 중' : ''}</p>
             </div>
             <div className="chart-range-toggle" aria-label="차트 기간 선택">
               {chartRanges.map(({ key, label, icon: Icon }) => (
@@ -137,14 +143,20 @@ export function StockDetailPage() {
             </div>
           </div>
 
-          <div className="stock-chart-kpis">
+          {chart.length > 0 && <div className="stock-chart-kpis">
             <span>고가 <strong>{currency(chartHigh)}</strong></span>
             <span>저가 <strong>{currency(chartLow)}</strong></span>
             <span>거래 강도 <strong>{compact(chartVolume)}</strong></span>
             <span>변동폭 <strong>{currency(Math.abs(chartEnd - chartStart))}</strong></span>
-          </div>
+          </div>}
 
-          <div className="chart-box stock-chart-box">
+          {chartLoading ? (
+            <EmptyState text="실제 가격 데이터를 불러오는 중입니다." />
+          ) : chartError ? (
+            <EmptyState text="가격 차트 API 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요." />
+          ) : chart.length === 0 ? (
+            <EmptyState text="이 구간에 기록된 가격 데이터가 없습니다." />
+          ) : <div className="chart-box stock-chart-box">
             <ResponsiveContainer width="100%" height={310}>
               <AreaChart data={chart} margin={{ top: 18, right: 8, bottom: 4, left: 0 }}>
                 <defs>
@@ -185,11 +197,8 @@ export function StockDetailPage() {
                 />
               </AreaChart>
             </ResponsiveContainer>
-          </div>
-          <div className="stock-chart-status">
-            <span><Activity size={15} /> {chartMoveRate >= 0 ? '매수세 우위' : '매도세 우위'}</span>
-            <span>{activeRange.caption} 기준 · {remoteChart.length ? '실시간 버킷' : '예상 흐름'}</span>
-          </div>
+          </div>}
+          <div className="stock-chart-status"><span>{activeRange.caption} 기준 · Backend 가격 히스토리</span></div>
           <div className="metadata">
             <h3>관리자 메타데이터</h3>
             {Object.entries(stock.metadata).map(([key, value]) => (
@@ -201,13 +210,14 @@ export function StockDetailPage() {
           stock={stock}
           ownedQuantity={holding?.quantity ?? 0}
           cash={user?.cash ?? 0}
-          onOrder={(order) => {
+          disabledReason={!user ? '주문하려면 먼저 로그인해주세요.' : !market?.active || !stock.active || stock.isTradingSuspended || stock.status === 'SUSPENDED' ? '현재 Market 또는 종목의 거래가 중지되어 있습니다.' : undefined}
+          onOrder={async (order) => {
             if (order.orderType === 'CONDITION') {
               if (!order.triggerPrice || order.triggerPrice <= 0) {
                 notify('조건 가격을 입력해주세요.');
                 return;
               }
-              void createConditionalOrder({
+              await createConditionalOrder({
                 stockId: stock.id,
                 type: order.type === 'buy' ? 'BUY' : 'SELL',
                 triggerPrice: order.triggerPrice,
@@ -219,9 +229,19 @@ export function StockDetailPage() {
               });
               return;
             }
-            void placeOrder(stock.id, order.type, order.quantity);
+            await placeOrder(stock.id, order.type, order.quantity);
           }}
         />
+      </section>
+      <section className="dashboard-grid">
+        <article className="panel">
+          <div className="panel-title"><ReceiptText size={20} /><h2>호가창</h2></div>
+          <EmptyState text="Backend Order Book API가 아직 제공되지 않습니다." />
+        </article>
+        <article className="panel">
+          <div className="panel-title"><Clock3 size={20} /><h2>최근 체결</h2></div>
+          <EmptyState text="Backend 종목별 공개 체결 API가 아직 제공되지 않습니다." />
+        </article>
       </section>
       <section className="dashboard-grid">
         <article className="panel">
@@ -262,47 +282,7 @@ function isNotFound(error: unknown) {
   return Boolean(error && typeof error === 'object' && 'status' in error && (error as { status?: number }).status === 404);
 }
 
-function createPriceSeries(stock: Stock, range: ChartRange) {
-  const config = {
-    day: {
-      points: 14,
-      start: stock.previousClose,
-      amplitude: 0.024,
-      label: (index: number) => `${index + 1}일`,
-    },
-    hour: {
-      points: 24,
-      start: stock.price * (1 - stock.changeRate / 100 * 0.36),
-      amplitude: 0.012,
-      label: (index: number) => `${String(index).padStart(2, '0')}시`,
-    },
-    minute: {
-      points: 30,
-      start: stock.price * (1 - stock.changeRate / 100 * 0.08),
-      amplitude: 0.0055,
-      label: (index: number) => `${index * 2}분`,
-    },
-  }[range];
-
-  return Array.from({ length: config.points }, (_, index) => {
-    const progress = index / (config.points - 1);
-    const trend = config.start + (stock.price - config.start) * progress;
-    const wave = Math.sin(index * 0.82 + stock.symbol.length) * stock.price * config.amplitude;
-    const pulse = Math.cos(index * 1.37 + stock.name.length) * stock.price * config.amplitude * 0.42;
-    const price = index === config.points - 1 ? stock.price : Math.max(1, Math.round(trend + wave + pulse));
-    const volume = Math.round((stock.volume / config.points) * (0.72 + Math.abs(Math.sin(index * 1.18)) * 0.74 + progress * 0.22));
-
-    return {
-      label: config.label(index),
-      price,
-      volume,
-    };
-  });
-}
-
-function getChartForRange(points: StockChartPoint[], stock: Stock, range: ChartRange) {
-  if (!points.length) return createPriceSeries(stock, range);
+function getChartForRange(points: StockChartPoint[], range: ChartRange) {
   const take = range === 'day' ? 14 : range === 'hour' ? 24 : 60;
-  const sliced = points.slice(-take);
-  return sliced.length ? sliced : createPriceSeries(stock, range);
+  return points.slice(-take);
 }

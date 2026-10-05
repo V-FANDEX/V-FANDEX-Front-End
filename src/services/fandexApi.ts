@@ -1,3 +1,5 @@
+import type { Row } from '../types/contracts';
+import Decimal from 'decimal.js';
 import type {
   ConditionalOrder,
   DividendSchedule,
@@ -12,44 +14,15 @@ import type {
   UserAccount,
 } from '../types';
 import { apiClient, hasAuthToken, jsonBody, withQuery } from './apiClient';
-import {
-  enrichMarkets,
-  fallbackDividendSchedule,
-  mapChartPoint,
-  mapConditionalOrder,
-  mapDividend,
-  mapDividendSchedule,
-  mapMarket,
-  mapPortfolio,
-  mapRanking,
-  mapScenario,
-  mapSeason,
-  mapStock,
-  mapTransaction,
-  mapUser,
-  toNumber,
-} from './mappers';
+import { enrichMarkets, fallbackDividendSchedule, mapChartPoint, mapConditionalOrder, mapDividend, mapMarket, mapPortfolio, mapRanking, mapScenario, mapSeason, mapStock, mapTransaction, mapUser, toNumber } from './mappers';
 
 export interface StockQuery {
   marketId?: string;
   search?: string;
 }
 
-export interface TradePayload {
-  stockId: string;
-  quantity: number;
-  orderType?: 'MARKET' | 'LIMIT' | 'CONDITION';
-}
-
-export interface ConditionalOrderPayload {
-  stockId: string;
-  type: 'BUY' | 'SELL';
-  triggerPrice: number;
-  conditionType: 'PRICE_LESS_THAN_OR_EQUAL' | 'PRICE_GREATER_THAN_OR_EQUAL';
-  quantity: number;
-}
-
 export const fandexApi = {
+  getMarketIndices: () => apiClient<Row[]>('/market-indices'),
   async health() {
     return apiClient<{ status: string; service: string; timestamp: string }>('/health');
   },
@@ -112,7 +85,7 @@ export const fandexApi = {
   },
 
   async getScenarios(): Promise<ScenarioLog[]> {
-    return listFrom(await apiClient<unknown>('/scenarios')).map(mapScenario);
+    return listFrom(await apiClient<unknown>('/news')).map(mapScenario);
   },
 
   async getScenario(id: string) {
@@ -175,43 +148,12 @@ export const fandexApi = {
     });
   },
 
-  async buyStock(payload: TradePayload) {
-    if (!hasAuthToken()) throw new Error('로그인이 필요합니다.');
-    return apiClient<unknown>('/trades/buy', {
-      method: 'POST',
-      body: jsonBody({ ...payload, orderType: payload.orderType ?? 'MARKET' }),
-    });
-  },
-
-  async sellStock(payload: TradePayload) {
-    if (!hasAuthToken()) throw new Error('로그인이 필요합니다.');
-    return apiClient<unknown>('/trades/sell', {
-      method: 'POST',
-      body: jsonBody({ ...payload, orderType: payload.orderType ?? 'MARKET' }),
-    });
-  },
-
-  async createConditionalOrder(payload: ConditionalOrderPayload) {
-    if (!hasAuthToken()) throw new Error('로그인이 필요합니다.');
-    return apiClient<unknown>('/conditional-orders', {
-      method: 'POST',
-      body: jsonBody(payload),
-    });
-  },
-
   async cancelConditionalOrder(orderId: string) {
     if (!hasAuthToken()) throw new Error('로그인이 필요합니다.');
     return apiClient<unknown>(`/conditional-orders/${orderId}/cancel`, { method: 'PATCH' });
   },
 
-  async getDividendSchedule(): Promise<DividendSchedule> {
-    if (!hasAuthToken()) return fallbackDividendSchedule();
-    try {
-      return mapDividendSchedule(await apiClient<unknown>('/admin/dividend-settings'));
-    } catch {
-      return fallbackDividendSchedule();
-    }
-  },
+  async getDividendSchedule(): Promise<DividendSchedule> { return fallbackDividendSchedule(); },
 };
 
 function mapStockQuote(raw: unknown): StockQuote {
@@ -271,8 +213,11 @@ export function mergeUserData(
     cash: toNumber(portfolio?.user.cash, currentUser?.cash ?? base.cash),
     initialCash: toNumber(portfolio?.user.initialCash, currentUser?.initialCash ?? base.initialCash),
     totalAssetValue: toNumber(portfolio?.user.totalAssetValue, currentUser?.totalAssetValue ?? base.totalAssetValue),
+    cashExact: portfolio?.user.cashExact ?? currentUser?.cashExact,
+    totalAssetValueExact: portfolio?.user.totalAssetValueExact ?? currentUser?.totalAssetValueExact,
     holdings: portfolio?.holdings ?? base.holdings,
     favoriteStockIds: watchlist,
-    totalDividend: dividends.reduce((sum, item) => sum + item.total, currentUser?.totalDividend ?? base.totalDividend),
+    totalDividend: dividends.reduce((sum, item) => sum.plus(item.totalExact ?? 0), new Decimal(0)).toNumber(),
+    totalDividendExact: dividends.reduce((sum, item) => sum.plus(item.totalExact ?? 0), new Decimal(0)).toFixed(),
   };
 }

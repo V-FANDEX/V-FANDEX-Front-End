@@ -1,31 +1,57 @@
+import { AUTH_TOKEN_KEY } from '../services/apiClient';
+import { createRealtime } from '../services/realtime';
+import { clearOperations } from '../hooks/useRemote';
+import { money } from '../utils/contracts';
 import { LogIn, LogOut, Medal, Menu, Shield, UserPlus, WalletCards } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AuthModal, type AuthMode } from './AuthModal';
 import { useFandexStore } from '../store/useFandexStore';
-import { currency } from '../utils/format';
 
 const navItems = [
   { to: '/', label: '소개' },
   { to: '/dashboard', label: '대시보드' },
   { to: '/markets', label: '장' },
   { to: '/portfolio', label: '포트폴리오' },
-  { to: '/orders', label: '조건주문' },
+  { to: '/orders', label: '주문 내역' },
   { to: '/dividends', label: '배당' },
   { to: '/news', label: '뉴스' },
   { to: '/agents', label: 'AI 투자자' },
 ];
 
 export function Layout() {
-  const { user, stocks, toast, clearToast } = useFandexStore();
+  const { user, toast, clearToast } = useFandexStore();
   const [open, setOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>();
-  const assetValue =
-    user?.totalAssetValue ??
-    user?.holdings.reduce((sum, holding) => {
-      const stock = holding.stock ?? stocks.find((item) => item.id === holding.stockId);
-      return sum + (stock?.price ?? 0) * holding.quantity;
-    }, user.cash) ?? 0;
+  const location = useLocation();
+  const [realtimeStatus, setRealtimeStatus] = useState('OFFLINE');
+  const stockId = location.pathname.match(/^\/stocks\/([^/]+)$/)?.[1];
+  useEffect(
+    () =>
+      createRealtime(
+        () => window.dispatchEvent(new Event('vfandex:invalidate')),
+        (status) => {
+          setRealtimeStatus(status);
+          window.dispatchEvent(new CustomEvent('vfandex:realtime-status', { detail: status }));
+        },
+        stockId,
+      ),
+    [stockId, user?.id],
+  );
+  useEffect(() => {
+    let busy = false;
+    const refresh = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        await useFandexStore.getState().load();
+      } finally {
+        busy = false;
+      }
+    };
+    window.addEventListener('vfandex:invalidate', refresh);
+    return () => window.removeEventListener('vfandex:invalidate', refresh);
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -35,11 +61,24 @@ export function Layout() {
 
   useEffect(() => {
     const handleUnauthorized = () => {
+      clearOperations();
+      useFandexStore.setState({ user: undefined, conditionalOrders: [], transactions: [] });
       setAuthMode('login');
     };
 
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === AUTH_TOKEN_KEY) {
+        clearOperations();
+        useFandexStore.setState({ user: undefined, transactions: [], conditionalOrders: [] });
+        void useFandexStore.getState().load();
+      }
+    };
+    window.addEventListener('storage', handleStorage);
     window.addEventListener('vfandex:unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('vfandex:unauthorized', handleUnauthorized);
+    return () => {
+      window.removeEventListener('vfandex:unauthorized', handleUnauthorized);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   useEffect(() => {
@@ -110,7 +149,11 @@ export function Layout() {
             <small>Virtual Fandom Exchange</small>
           </span>
         </NavLink>
-        <button className="icon-button mobile-only" onClick={() => setOpen((value) => !value)} aria-label="메뉴 열기">
+        <button
+          className="icon-button mobile-only"
+          onClick={() => setOpen((value) => !value)}
+          aria-label="메뉴 열기"
+        >
           <Menu size={20} />
         </button>
         <nav className={open ? 'nav open' : 'nav'}>
@@ -130,8 +173,13 @@ export function Layout() {
         </nav>
         <div className="account-strip">
           <WalletCards size={18} />
-          <span>{user ? currency(assetValue) : '게스트 모드'}</span>
-          {user && <span className={user.role === 'admin' ? 'account-badge admin' : 'account-badge'}>{user.role === 'admin' ? 'ADMIN' : 'USER'} · {user.name}</span>}
+          <span>{user ? money(user.totalAssetValueExact ?? user.cashExact) : '게스트 모드'}</span>
+          <small>{realtimeStatus}</small>
+          {user && (
+            <span className={user.role === 'admin' ? 'account-badge admin' : 'account-badge'}>
+              {user.role === 'admin' ? 'ADMIN' : 'USER'} · {user.name}
+            </span>
+          )}
           {user ? (
             <button className="ghost-button muted" onClick={() => setAuthMode('logout')}>
               <LogOut size={15} /> 로그아웃

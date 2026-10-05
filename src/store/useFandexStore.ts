@@ -1,7 +1,9 @@
+import type { Row } from '../types/contracts';
+import { clearOperations } from '../hooks/useRemote';
 import { create } from 'zustand';
 import { authApi, type LoginPayload, type SignupPayload } from '../services/authApi';
-import { clearAuthToken, getErrorMessage } from '../services/apiClient';
-import { fandexApi, mergeUserData, type ConditionalOrderPayload } from '../services/fandexApi';
+import { getAuthToken, getErrorMessage } from '../services/apiClient';
+import { fandexApi, mergeUserData } from '../services/fandexApi';
 import { enrichMarkets } from '../services/mappers';
 import type {
   ConditionalOrder,
@@ -16,9 +18,8 @@ import type {
   UserAccount,
 } from '../types';
 
-type OrderKind = 'buy' | 'sell';
-
 interface FandexState {
+  marketIndices: Row[];
   markets: Market[];
   stocks: Stock[];
   user?: UserAccount;
@@ -36,8 +37,6 @@ interface FandexState {
   signup: (payload: SignupPayload) => Promise<void>;
   logout: () => Promise<void>;
   toggleFavorite: (stockId: string) => Promise<void>;
-  placeOrder: (stockId: string, type: OrderKind, quantity: number) => Promise<void>;
-  createConditionalOrder: (payload: ConditionalOrderPayload) => Promise<void>;
   claimDividend: (stockId?: string) => Promise<void>;
   updateDividendSchedule: (patch: Partial<DividendSchedule>) => void;
   cancelConditionalOrder: (orderId: string) => Promise<void>;
@@ -46,6 +45,7 @@ interface FandexState {
 }
 
 export const useFandexStore = create<FandexState>((set, get) => ({
+  marketIndices: [],
   markets: [],
   stocks: [],
   rankings: [],
@@ -55,6 +55,7 @@ export const useFandexStore = create<FandexState>((set, get) => ({
   isReady: false,
 
   load: async () => {
+    const identityToken = getAuthToken();
     try {
       const publicResults = await Promise.allSettled([
         fandexApi.getStocks(),
@@ -63,6 +64,7 @@ export const useFandexStore = create<FandexState>((set, get) => ({
         fandexApi.getSeason(),
         fandexApi.getRankings(),
         fandexApi.getScenarios(),
+        fandexApi.getMarketIndices(),
       ]);
       const stocksData = applyQuotes(settledValue(publicResults[0], []), settledValue(publicResults[1], []));
       const marketsData = settledValue(publicResults[2], []);
@@ -70,7 +72,7 @@ export const useFandexStore = create<FandexState>((set, get) => ({
       const rankingData = settledValue(publicResults[4], []);
       const scenarioData = settledValue(publicResults[5], []);
       const failedPublicData = publicResults
-        .map((result, index) => (result.status === 'rejected' ? ['종목', '시세', '시장', '시즌', '랭킹', '시나리오'][index] : null))
+        .map((result, index) => (result.status === 'rejected' ? ['종목', '시세', '시장', '시즌', '랭킹', '시나리오', '시장 지수'][index] : null))
         .filter((label): label is string => Boolean(label));
       const [currentUser, portfolio, watchlist, orderData, tradeData, dividendData, scheduleData, myRanking] =
         await Promise.all([
@@ -89,7 +91,9 @@ export const useFandexStore = create<FandexState>((set, get) => ({
       const user = mergeUserData(currentUser, portfolio, watchlist ?? [], dividendData ?? []);
       const rankings = upsertMyRanking(rankingData, myRanking, user);
 
+      if (getAuthToken() !== identityToken) return;
       set({
+        marketIndices: settledValue(publicResults[6], []),
         markets: enrichMarkets(marketsData, stocksData),
         stocks: stocksData,
         user,
@@ -145,6 +149,7 @@ export const useFandexStore = create<FandexState>((set, get) => ({
 
   logout: async () => {
     await authApi.logout();
+    clearOperations();
     set({
       user: undefined,
       conditionalOrders: [],
@@ -176,47 +181,6 @@ export const useFandexStore = create<FandexState>((set, get) => ({
         },
         toast: exists ? '즐겨찾기에서 제거했습니다.' : '즐겨찾기에 추가했습니다.',
       });
-    } catch (error) {
-      set({ toast: errorMessage(error) });
-    }
-  },
-
-  placeOrder: async (stockId, type, quantity) => {
-    if (!get().user) {
-      set({ toast: '거래하려면 로그인이 필요합니다.' });
-      return;
-    }
-    if (quantity <= 0) {
-      set({ toast: '주문 수량을 1주 이상 입력해주세요.' });
-      return;
-    }
-
-    try {
-      const payload = { stockId, quantity, orderType: 'MARKET' as const };
-      if (type === 'buy') {
-        await fandexApi.buyStock(payload);
-      } else {
-        await fandexApi.sellStock(payload);
-      }
-
-      set({ toast: type === 'buy' ? '매수 요청이 처리되었습니다.' : '매도 요청이 처리되었습니다.' });
-      await get().load();
-    } catch (error) {
-      set({ toast: errorMessage(error) });
-    }
-  },
-
-  createConditionalOrder: async (payload) => {
-    if (!get().user) {
-      set({ toast: '조건 주문을 등록하려면 로그인이 필요합니다.' });
-      return;
-    }
-
-    try {
-      await fandexApi.createConditionalOrder(payload);
-      set({ toast: '조건 주문이 등록되었습니다.' });
-      const conditionalOrders = await fandexApi.getConditionalOrders();
-      set({ conditionalOrders });
     } catch (error) {
       set({ toast: errorMessage(error) });
     }
@@ -269,6 +233,7 @@ function applyQuotes(stocks: Stock[], quotes: StockQuote[]) {
     return {
       ...stock,
       price: Number(quote.currentPrice),
+      priceExact: quote.currentPrice,
       previousClose: Number(quote.previousPrice),
       changeRate: Number(quote.changeRate),
     };
@@ -280,7 +245,6 @@ async function safe<T>(promise: Promise<T>, fallback?: T) {
     return await promise;
   } catch (error) {
     if (isUnauthorized(error)) {
-      clearAuthToken();
       return fallback;
     }
     return fallback;

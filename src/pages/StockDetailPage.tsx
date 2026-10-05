@@ -1,288 +1,107 @@
-import { CalendarDays, Clock3, Heart, Info, ReceiptText, Timer } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { Navigate, useParams } from 'react-router-dom';
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Change, EmptyState, ScenarioCard, StatCard } from '../components/Cards';
-import { TradePanel } from '../components/TradePanel';
-import { fandexApi } from '../services/fandexApi';
+import { useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useRemote } from '../hooks/useRemote';
+import { useMarketSnapshot } from '../hooks/useMarketSnapshot';
+import { segment } from '../services/contractApi';
+import type { Row } from '../types/contracts';
+import { EngineTradePanel } from '../components/EngineTradePanel';
+import { ErrorNotice, Field, Table } from '../components/admin/Shared';
+import { localDate, money } from '../utils/contracts';
 import { useFandexStore } from '../store/useFandexStore';
-import type { Stock, StockChartPoint } from '../types';
-import { compact, currency, dateTime } from '../utils/format';
-
-type ChartRange = 'day' | 'hour' | 'minute';
-
-const chartRanges: Array<{ key: ChartRange; label: string; caption: string; icon: typeof CalendarDays }> = [
-  { key: 'day', label: '일', caption: '14일', icon: CalendarDays },
-  { key: 'hour', label: '시간', caption: '24시간', icon: Clock3 },
-  { key: 'minute', label: '분', caption: '60분', icon: Timer },
-];
-
 export function StockDetailPage() {
   const { stockId } = useParams();
-  const {
-    stocks,
-    markets,
-    user,
-    scenarios,
-    dividendSchedule,
-    toggleFavorite,
-    placeOrder,
-    createConditionalOrder,
-    claimDividend,
-    notify,
-  } = useFandexStore();
-  const [chartRange, setChartRange] = useState<ChartRange>('day');
-  const [remoteStock, setRemoteStock] = useState<Stock>();
-  const [stockChecked, setStockChecked] = useState(false);
-  const [remoteChart, setRemoteChart] = useState<StockChartPoint[]>([]);
-  const [chartLoading, setChartLoading] = useState(false);
-  const [chartError, setChartError] = useState(false);
-  const stock = stocks.find((item) => item.id === stockId) ?? remoteStock;
-  const chart = useMemo(
-    () => getChartForRange(remoteChart, chartRange),
-    [chartRange, remoteChart],
-  );
-
-  useEffect(() => {
-    if (!stockId) return;
-    setStockChecked(false);
-    const inStore = stocks.find((item) => item.id === stockId);
-    if (inStore) {
-      setRemoteStock(inStore);
-      setStockChecked(true);
-      return;
-    }
-
-    fandexApi
-      .getStock(stockId)
-      .then(setRemoteStock)
-      .catch((error) => {
-        setRemoteStock(undefined);
-        if (isNotFound(error)) {
-          notify('초기화로 삭제된 종목입니다.');
-        }
-      })
-      .finally(() => setStockChecked(true));
-  }, [notify, stockId, stocks]);
-
-  useEffect(() => {
-    if (!stockId) return;
-    setChartLoading(true);
-    setChartError(false);
-    fandexApi
-      .getStockChart(stockId, chartRange, chartRange === 'day' ? 30 : chartRange === 'hour' ? 24 : 60)
-      .then(setRemoteChart)
-      .catch(() => {
-        setRemoteChart([]);
-        setChartError(true);
-      })
-      .finally(() => setChartLoading(false));
-  }, [chartRange, stockId]);
-
-  if (!stock && !stockChecked) {
-    return (
-      <div className="boot">
-        <div className="brand-mark">VF</div>
-        <p>종목 상세 데이터를 불러오는 중</p>
-      </div>
-    );
-  }
-
-  if (!stock) return <Navigate to="/markets" replace />;
-  const market = stock.market ?? markets.find((item) => item.id === stock.marketId);
-  const holding = user?.holdings.find((item) => item.stockId === stock.id);
-  const pnl = holding ? (stock.price - holding.averagePrice) * holding.quantity : 0;
-  const chartStart = chart[0]?.price ?? stock.previousClose;
-  const chartEnd = chart[chart.length - 1]?.price ?? stock.price;
-  const chartHigh = chart.length ? Math.max(...chart.map((point) => point.price)) : stock.price;
-  const chartLow = chart.length ? Math.min(...chart.map((point) => point.price)) : stock.price;
-  const chartMoveRate = chartStart > 0 ? ((chartEnd - chartStart) / chartStart) * 100 : 0;
-  const chartVolume = chart.reduce((sum, point) => sum + point.volume, 0);
-  const chartPadding = Math.max(250, stock.price * 0.04);
-  const activeRange = chartRanges.find((item) => item.key === chartRange) ?? chartRanges[0];
-  const gradientId = `price-${stock.id}-${chartRange}`;
-
+  const [interval, setInterval] = useState('1h');
+  const stock = useRemote<Row>(stockId ? `/stocks/${segment(stockId)}` : undefined);
+  const snapshot = useMarketSnapshot(stockId, interval);
+  const { data } = snapshot;
+  const { user, toggleFavorite } = useFandexStore();
   return (
-    <div className="page">
-      <section className="detail-hero">
-        <img src={stock.imageUrl} alt="" />
-        <div>
-          <span className="eyebrow">{market?.name}</span>
-          <h1>{stock.name}</h1>
-          <p>{stock.description}</p>
-          <div className="tag-list">{stock.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>
-        </div>
-        <button className="secondary-button" onClick={() => toggleFavorite(stock.id)}>
-          <Heart size={18} fill={user?.favoriteStockIds.includes(stock.id) ? 'currentColor' : 'none'} /> 즐겨찾기
+    <div className="page contract-workspace">
+      <header className="page-header">
+        <h1>{String(stock.data?.name ?? '종목')}</h1>
+        <p>{String(stock.data?.description ?? '')}</p>
+        <p>
+          실시간 {snapshot.status} · 마지막 체결 {localDate(data?.quote.lastTradeAt as string | undefined)}
+        </p>
+        <button onClick={() => window.dispatchEvent(new Event('vfandex:invalidate'))}>
+          REST 스냅샷 새로고침
         </button>
-      </section>
+        {stockId && (
+          <button onClick={() => void toggleFavorite(stockId)}>
+            {user?.favoriteStockIds.includes(stockId) ? '즐겨찾기 해제' : '즐겨찾기'}
+          </button>
+        )}
+      </header>
+      <ErrorNotice error={stock.error ?? snapshot.error} />
       <section className="stat-grid">
-        <StatCard label="현재 가격" value={currency(stock.price)} hint={stock.symbol || '심볼 미제공'} />
-        <StatCard label="전일 대비" value={`${stock.price - stock.previousClose > 0 ? '+' : ''}${currency(stock.price - stock.previousClose)}`} hint={`${stock.changeRate.toFixed(2)}%`} />
-        <StatCard label="최근 거래량" value={compact(stock.volume)} />
-        <StatCard label="거래대금" value={currency(stock.tradeValue)} />
-        <StatCard label="시가총액" value={currency(stock.marketCap)} />
-        <StatCard label="Market 운영 상태" value={market?.active ? 'ACTIVE' : 'INACTIVE'} />
-        <StatCard label="상장 상태" value={formatStockStatus(stock.status)} />
-        <StatCard label="평가 손익" value={currency(pnl)} hint={holding ? `${holding.quantity}주 보유` : '미보유'} />
+        <article className="stat-card">
+          <span>실제 마지막 체결가</span>
+          <strong>{money(data?.quote.lastPrice as string | null | undefined)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>초기 참고 가격</span>
+          <strong>{money(data?.quote.initialReferencePrice as string | undefined)}</strong>
+        </article>
       </section>
       <section className="detail-grid">
-        <article className="panel wide stock-chart-panel">
-          <div className="stock-chart-head">
-            <div>
-              <div className="panel-title"><ReceiptText size={20} /><h2>가격 차트</h2><Change value={chartMoveRate} /></div>
-              <p className="panel-copy">{stock.symbol || stock.name} 가격 흐름 · {activeRange.caption} 단위 {chartLoading ? '· 불러오는 중' : ''}</p>
-            </div>
-            <div className="chart-range-toggle" aria-label="차트 기간 선택">
-              {chartRanges.map(({ key, label, icon: Icon }) => (
-                <button key={key} className={chartRange === key ? 'active' : ''} onClick={() => setChartRange(key)} type="button">
-                  <Icon size={15} />
-                  {label}
-                </button>
+        <article className="panel wide">
+          <h2>실제 체결 가격</h2>
+          <Field label="봉 간격">
+            <select value={interval} onChange={(e) => setInterval(e.target.value)}>
+              {['1m', '5m', '15m', '1h', '1d'].map((x) => (
+                <option key={x}>{x}</option>
               ))}
-            </div>
-          </div>
-
-          {chart.length > 0 && <div className="stock-chart-kpis">
-            <span>고가 <strong>{currency(chartHigh)}</strong></span>
-            <span>저가 <strong>{currency(chartLow)}</strong></span>
-            <span>거래 강도 <strong>{compact(chartVolume)}</strong></span>
-            <span>변동폭 <strong>{currency(Math.abs(chartEnd - chartStart))}</strong></span>
-          </div>}
-
-          {chartLoading ? (
-            <EmptyState text="실제 가격 데이터를 불러오는 중입니다." />
-          ) : chartError ? (
-            <EmptyState text="가격 차트 API 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요." />
-          ) : chart.length === 0 ? (
-            <EmptyState text="이 구간에 기록된 가격 데이터가 없습니다." />
-          ) : <div className="chart-box stock-chart-box">
+            </select>
+          </Field>
+          {data?.candles.length ? (
             <ResponsiveContainer width="100%" height={310}>
-              <AreaChart data={chart} margin={{ top: 18, right: 8, bottom: 4, left: 0 }}>
-                <defs>
-                  <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor="#7c5cff" stopOpacity={0.65} />
-                    <stop offset="95%" stopColor="#38d5ff" stopOpacity={0.05} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.07)" strokeDasharray="3 8" />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} tick={{ fill: '#7890ad', fontSize: 12 }} />
-                <YAxis
-                  orientation="right"
-                  tickLine={false}
-                  axisLine={false}
-                  width={72}
-                  domain={[chartLow - chartPadding, chartHigh + chartPadding]}
-                  tick={{ fill: '#7890ad', fontSize: 12 }}
-                  tickFormatter={(value) => `₩${compact(Number(value))}`}
-                />
+              <LineChart data={data.candles.map((c) => ({ ...c, chartClose: Number(c.close) }))}>
+                <XAxis dataKey="openTime" tickFormatter={(x) => localDate(x)} />
+                <YAxis />
                 <Tooltip
-                  cursor={{ stroke: 'rgba(56, 213, 255, 0.36)', strokeWidth: 1 }}
-                  contentStyle={{
-                    border: '1px solid rgba(56, 213, 255, 0.22)',
-                    borderRadius: 8,
-                    background: '#101b2d',
-                    boxShadow: '0 18px 44px rgba(0, 0, 0, 0.32)',
-                  }}
-                  labelStyle={{ color: '#98abc5' }}
-                  formatter={(value, name) => [name === 'price' ? currency(Number(value)) : compact(Number(value)), name === 'price' ? '종가' : '집계']}
+                  formatter={(_, __, props) => [money(props.payload.close), '종가']}
+                  labelFormatter={(value) => localDate(String(value))}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="price"
-                  stroke="#38d5ff"
-                  fill={`url(#${gradientId})`}
-                  strokeWidth={3}
-                  activeDot={{ r: 6, strokeWidth: 3, stroke: '#dff8ff', fill: '#38d5ff' }}
-                />
-              </AreaChart>
+                <Line dataKey="chartClose" stroke="#38d5ff" dot={false} isAnimationActive={false} />
+              </LineChart>
             </ResponsiveContainer>
-          </div>}
-          <div className="stock-chart-status"><span>{activeRange.caption} 기준 · Backend 가격 히스토리</span></div>
-          <div className="metadata">
-            <h3>관리자 메타데이터</h3>
-            {Object.entries(stock.metadata).map(([key, value]) => (
-              <span key={key}>{key}: {value}</span>
-            ))}
-          </div>
-        </article>
-        <TradePanel
-          stock={stock}
-          ownedQuantity={holding?.quantity ?? 0}
-          cash={user?.cash ?? 0}
-          disabledReason={!user ? '주문하려면 먼저 로그인해주세요.' : !market?.active || !stock.active || stock.isTradingSuspended || stock.status === 'SUSPENDED' ? '현재 Market 또는 종목의 거래가 중지되어 있습니다.' : undefined}
-          onOrder={async (order) => {
-            if (order.orderType === 'CONDITION') {
-              if (!order.triggerPrice || order.triggerPrice <= 0) {
-                notify('조건 가격을 입력해주세요.');
-                return;
-              }
-              await createConditionalOrder({
-                stockId: stock.id,
-                type: order.type === 'buy' ? 'BUY' : 'SELL',
-                triggerPrice: order.triggerPrice,
-                conditionType:
-                  order.type === 'buy'
-                    ? 'PRICE_LESS_THAN_OR_EQUAL'
-                    : 'PRICE_GREATER_THAN_OR_EQUAL',
-                quantity: order.quantity,
-              });
-              return;
-            }
-            await placeOrder(stock.id, order.type, order.quantity);
-          }}
-        />
-      </section>
-      <section className="dashboard-grid">
-        <article className="panel">
-          <div className="panel-title"><ReceiptText size={20} /><h2>호가창</h2></div>
-          <EmptyState text="Backend Order Book API가 아직 제공되지 않습니다." />
-        </article>
-        <article className="panel">
-          <div className="panel-title"><Clock3 size={20} /><h2>최근 체결</h2></div>
-          <EmptyState text="Backend 종목별 공개 체결 API가 아직 제공되지 않습니다." />
-        </article>
-      </section>
-      <section className="dashboard-grid">
-        <article className="panel">
-          <div className="panel-title"><Info size={20} /><h2>배당금 정보</h2></div>
-          <p className="panel-copy">
-            {stock.dividendEnabled
-              ? `기본 배당률 ${stock.dividendRate}%가 적용됩니다. 관리자 설정 스케줄에 따라 자동 지급됩니다.`
-              : '이 종목은 현재 배당을 지원하지 않습니다.'}
-          </p>
-          <div className="schedule-summary compact">
-            <span>상태 <strong>{stock.dividendEnabled ? '자동 지급' : '미지원'}</strong></span>
-            <span>다음 지급 <strong>{stock.dividendEnabled && dividendSchedule ? dateTime(dividendSchedule.nextRunAt ?? dividendSchedule.nextPayoutAt) : '-'}</strong></span>
-          </div>
-          {stock.dividendEnabled && (
-            <button className="secondary-button" type="button" onClick={() => void claimDividend(stock.id)}>
-              배당 수령 요청
-            </button>
+          ) : (
+            <p>해당 구간에 실제 체결 봉이 없습니다.</p>
           )}
+          <p>체결이 없는 구간의 봉을 생성하지 않습니다. volume은 정수 문자열로 보존합니다.</p>
+          <details>
+            <summary>봉 원본</summary>
+            <Table
+              rows={data?.candles ?? []}
+              columns={['openTime', 'open', 'high', 'low', 'close', 'volume']}
+            />
+          </details>
+        </article>
+        {stockId && (
+          <EngineTradePanel
+            key={`${user?.id}:${stockId}`}
+            stockId={stockId}
+            tickSize={stock.data?.tickSize as string | undefined}
+          />
+        )}
+      </section>
+      <section className="dashboard-grid">
+        <article className="panel">
+          <h2>호가창</h2>
+          <h3>매도</h3>
+          <Table rows={data?.orderbook.asks ?? []} columns={['price', 'quantity', 'orderCount']} />
+          <h3>매수</h3>
+          <Table rows={data?.orderbook.bids ?? []} columns={['price', 'quantity', 'orderCount']} />
         </article>
         <article className="panel">
-          <div className="panel-title"><ReceiptText size={20} /><h2>최근 시나리오 로그</h2></div>
-          {scenarios.filter((scenario) => scenario.affectedStockIds.includes(stock.id)).map((scenario) => (
-            <ScenarioCard key={scenario.id} scenario={scenario} stockNames={[stock.name]} />
-          ))}
+          <h2>최근 실제 체결</h2>
+          <Table
+            rows={data?.trades ?? []}
+            columns={['sequence', 'price', 'quantity', 'aggressorSide', 'executedAt']}
+          />
         </article>
       </section>
     </div>
   );
-}
-
-function formatStockStatus(status?: string) {
-  if (status === 'SUSPENDED') return '거래정지';
-  if (status === 'UNLISTED') return '상장폐지';
-  return '상장';
-}
-
-function isNotFound(error: unknown) {
-  return Boolean(error && typeof error === 'object' && 'status' in error && (error as { status?: number }).status === 404);
-}
-
-function getChartForRange(points: StockChartPoint[], range: ChartRange) {
-  const take = range === 'day' ? 14 : range === 'hour' ? 24 : 60;
-  return points.slice(-take);
 }

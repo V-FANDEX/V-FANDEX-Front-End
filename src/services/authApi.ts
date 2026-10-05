@@ -28,7 +28,7 @@ export const authApi = {
       body: jsonBody({ email, password }),
     });
     setAuthToken(response.accessToken);
-    return authApi.me(response.user);
+    return authApi.me();
   },
 
   async signup({ nickname, name, email, password }: SignupPayload): Promise<UserAccount> {
@@ -37,18 +37,10 @@ export const authApi = {
       body: jsonBody({ nickname: nickname ?? name, email, password }),
     });
     setAuthToken(response.accessToken);
-    return authApi.me(response.user);
+    return authApi.me();
   },
 
-  async me(fallback?: unknown): Promise<UserAccount> {
-    try {
-      const user = await apiClient<unknown>('/auth/me');
-      return mapUser(user);
-    } catch (error) {
-      if (fallback) return mapUser(fallback);
-      throw error;
-    }
-  },
+  async me(): Promise<UserAccount> { return mapUser(await apiClient<unknown>('/auth/me')); },
 
   async logout() {
     clearAuthToken();

@@ -4,7 +4,8 @@ import { useFandexStore } from '../store/useFandexStore';
 import { currency } from '../utils/format';
 
 export function AgentsPage() {
-  const agents = useFandexStore((state) => state.rankings.filter((entry) => entry.role === 'ai'));
+  const rankings = useFandexStore((state) => state.rankings);
+  const agents = rankings.filter(entry => entry.role === 'ai');
   const leader = agents[0];
 
   return (
@@ -16,7 +17,7 @@ export function AgentsPage() {
       </header>
       <section className="stat-grid">
         <StatCard label="활동 AI" value={`${agents.length}명`} />
-        <StatCard label="AI 1위" value={leader?.name ?? '-'} hint={leader ? currency(leader.totalAssets) : undefined} />
+        <StatCard label="AI 1위" value={leader?.name ?? '-'} hint={leader ? currency(leader.totalAssetsExact ?? leader.totalAssets) : undefined} />
       </section>
       <section className="panel">
         <div className="panel-title"><Bot size={20} /><h2>AI 계정 랭킹</h2></div>

@@ -1,7 +1,6 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
-import { AdminPage } from './pages/AdminPage';
 import { AgentsPage } from './pages/AgentsPage';
 import { ConditionalOrdersPage } from './pages/ConditionalOrdersPage';
 import { DividendsPage } from './pages/DividendsPage';
@@ -14,6 +13,8 @@ import { ScenariosPage } from './pages/ScenariosPage';
 import { StockDetailPage } from './pages/StockDetailPage';
 import { StockListPage } from './pages/StockListPage';
 import { useFandexStore } from './store/useFandexStore';
+
+const AdminPage = lazy(() => import('./pages/AdminPage').then(module => ({ default: module.AdminPage })));
 
 export default function App() {
   const { isReady, load, user } = useFandexStore();
@@ -66,7 +67,7 @@ export default function App() {
         <Route path="agents" element={<AgentsPage />} />
         <Route path="news" element={<ScenariosPage />} />
         <Route path="scenarios" element={<Navigate to="/news" replace />} />
-        <Route path="admin" element={user?.role === 'admin' ? <AdminPage /> : <Navigate to="/" replace />} />
+        <Route path="admin" element={user?.role === 'admin' ? <Suspense fallback={<p>관리자 화면을 불러오는 중…</p>}><AdminPage key={user.id} /></Suspense> : <Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

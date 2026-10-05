@@ -143,6 +143,7 @@ export interface WebSocketMessage<TPayload = unknown> {
 }
 
 export interface Market {
+  marketCapExact?: string;
   id: MarketCategory;
   name: string;
   description: string;
@@ -159,6 +160,11 @@ export interface Market {
 }
 
 export interface Stock {
+  marketCapExact?: string;
+  tradeValueExact?: string;
+  sectorId?: string | null;
+  sectorRevision?: number;
+  priceExact?: string;
   id: string;
   marketId: MarketCategory;
   market?: Market;
@@ -197,6 +203,7 @@ export interface Holding {
 }
 
 export interface Transaction {
+  totalExact?: string;
   id: string;
   stockId: string;
   stock?: Stock;
@@ -236,6 +243,9 @@ export interface DividendSchedule {
 }
 
 export interface UserAccount {
+  totalDividendExact?: string;
+  cashExact?: string;
+  totalAssetValueExact?: string;
   id: string;
   email?: string;
   name: string;
@@ -249,6 +259,7 @@ export interface UserAccount {
 }
 
 export interface RankingEntry {
+  totalAssetsExact?: string;
   id: string;
   name: string;
   role: Role;

@@ -1,17 +1,16 @@
 const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
 
 export const API_BASE_URL =
-  viteEnv?.VITE_API_BASE_URL?.replace(/\/$/, '') ?? 'https://v-fandex-back-end.onrender.com';
+  viteEnv?.VITE_API_BASE_URL?.replace(/\/$/, '') ?? '';
 
-// The current backend does not expose WebSocket transport yet. Keep this
-// optional so production never invents a localhost connection or retry loop.
-export const WS_URL = viteEnv?.VITE_WS_URL?.replace(/\/$/, '');
+export const WS_URL = viteEnv?.VITE_WS_URL?.replace(/\/$/, '') || (API_BASE_URL ? API_BASE_URL.replace(/^http/, 'ws') + '/ws' : undefined);
 
 export const AUTH_TOKEN_KEY = 'v-fandex-access-token';
 
 export class ApiError extends Error {
   status: number;
   payload: unknown;
+  path?: string;
 
   constructor(message: string, status: number, payload: unknown) {
     super(message);
@@ -38,6 +37,7 @@ export function hasAuthToken() {
 }
 
 export async function apiClient<T>(path: string, options: RequestInit = {}): Promise<T> {
+  if (!API_BASE_URL) throw new ApiError('VITE_API_BASE_URL을 설정하세요. 실제 서버에 연결되지 않았습니다.', 0, undefined);
   const token = getAuthToken();
   const headers = new Headers(options.headers);
 
@@ -57,11 +57,14 @@ export async function apiClient<T>(path: string, options: RequestInit = {}): Pro
 
   if (!response.ok) {
     const message = getErrorMessage(payload, response.statusText || '요청 처리에 실패했습니다.');
-    if (response.status === 401) {
+    // Only the identity endpoint establishes an expired login. Provider 401 must retain its context.
+    if (response.status === 401 && path === '/auth/me') {
       clearAuthToken();
       window.dispatchEvent(new CustomEvent('vfandex:unauthorized', { detail: { message } }));
     }
-    throw new ApiError(message, response.status, payload);
+    const error = new ApiError(message, response.status, payload);
+    error.path = path;
+    throw error;
   }
 
   return payload as T;
@@ -72,7 +75,8 @@ export function jsonBody(body: unknown) {
 }
 
 export function withQuery(path: string, params: Record<string, string | number | boolean | undefined | null>) {
-  const searchParams = new URLSearchParams();
+  const [pathname, existing] = path.split('?');
+  const searchParams = new URLSearchParams(existing);
 
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
@@ -81,7 +85,7 @@ export function withQuery(path: string, params: Record<string, string | number |
   });
 
   const query = searchParams.toString();
-  return query ? `${path}?${query}` : path;
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 export function getErrorMessage(payload: unknown, fallback = '요청 처리에 실패했습니다.') {

@@ -1,71 +1,60 @@
-import { BellRing, X } from 'lucide-react';
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { EmptyState } from '../components/Cards';
+import { useEffect } from 'react';
+import { useAction, usePage } from '../hooks/useRemote';
+import { segment, write } from '../services/contractApi';
 import { useFandexStore } from '../store/useFandexStore';
-import { currency, dateTime } from '../utils/format';
-
+import type { EngineOrder } from '../types/contracts';
+import { DataView, ErrorNotice, PageButtons, Table } from '../components/admin/Shared';
 export function ConditionalOrdersPage() {
-  const { conditionalOrders, stocks, cancelConditionalOrder } = useFandexStore();
-  const [cancellingOrderId, setCancellingOrderId] = useState<string>();
-
-  const cancel = async (orderId: string) => {
-    if (cancellingOrderId) return;
-    setCancellingOrderId(orderId);
-    try {
-      await cancelConditionalOrder(orderId);
-    } finally {
-      setCancellingOrderId(undefined);
-    }
-  };
-
+  const user = useFandexStore((s) => s.user);
   return (
     <div className="page">
       <header className="page-header">
-        <span className="eyebrow">Smart Orders</span>
-        <h1>조건 매수/매도</h1>
-        <p>가격 조건을 만족하면 자동 체결되는 주문을 관리합니다.</p>
+        <h1>주문 내역</h1>
+        <p>접수와 체결을 구분합니다. 취소된 주문도 일부 체결량이 있을 수 있습니다.</p>
       </header>
-      <section className="panel">
-        <div className="stock-table order-table">
-          <div className="stock-row table-head">
-            <span>종목</span><span>조건</span><span>수량</span><span>상태</span><span>기록</span><span />
-          </div>
-          {conditionalOrders.length ? conditionalOrders.map((order) => {
-            const stock = stocks.find((item) => item.id === order.stockId);
-            const statusLabel = formatOrderStatus(order.status, order.active);
-            return (
-              <div className="stock-row conditional-order-row" key={order.id}>
-                <Link to={`/stocks/${order.stockId}`} className="stock-title">
-                  <span>
-                    <strong>{stock?.name ?? '알 수 없는 종목'}</strong>
-                    <small>{stock?.symbol ?? order.stockId}</small>
-                  </span>
-                </Link>
-                <span className="order-metric" data-label="조건">{order.direction === 'buyBelow' ? '이하 매수' : '이상 매도'} {currency(order.targetPrice)}</span>
-                <strong className="order-metric" data-label="수량">{order.quantity.toLocaleString('ko-KR')}주</strong>
-                <span className="order-metric" data-label="상태"><span className={statusLabel.className}>{statusLabel.text}</span></span>
-                <small className="order-metric" data-label="기록">{order.executedAt ? `체결 ${dateTime(order.executedAt)}` : `등록 ${dateTime(order.createdAt)}`}</small>
-                <button className="icon-button order-cancel-button" disabled={!order.active || Boolean(cancellingOrderId)} onClick={() => void cancel(order.id)} aria-label="조건 주문 취소">
-                  <X size={18} />
-                </button>
-              </div>
-            );
-          }) : <EmptyState text="등록된 조건 주문이 없습니다." />}
-        </div>
-      </section>
-      <section className="panel">
-        <div className="panel-title"><BellRing size={20} /><h2>자동 체결 알림</h2></div>
-        <p className="panel-copy">조건 주문 체결 시 토스트와 거래 내역에 기록됩니다. 가격 변동 알림 구조는 백엔드 웹소켓 또는 푸시 API로 확장할 수 있습니다.</p>
-      </section>
+      {user ? <Orders key={user.id} /> : <p>로그인 후 조회할 수 있습니다.</p>}
     </div>
   );
 }
-
-function formatOrderStatus(status?: string, active?: boolean) {
-  const value = String(status ?? (active ? 'ACTIVE' : 'CANCELLED')).toUpperCase();
-  if (value === 'TRIGGERED') return { text: '체결', className: 'pill cyan' };
-  if (value === 'FAILED') return { text: '실패', className: 'pill negative' };
-  if (value === 'CANCELLED') return { text: '취소', className: 'pill' };
-  return { text: '활성', className: 'pill purple' };
+function Orders() {
+  const page = usePage<EngineOrder>('/orders/me/page?limit=50', 'before');
+  const action = useAction(page.refresh);
+  const refresh = page.refresh;
+  useEffect(() => {
+    window.addEventListener('vfandex:invalidate', refresh);
+    return () => window.removeEventListener('vfandex:invalidate', refresh);
+  }, [refresh]);
+  return (
+    <section className="panel">
+      <ErrorNotice error={page.error ?? action.error} />
+      <Table
+        rows={page.items}
+        columns={[
+          'id',
+          'stockId',
+          'side',
+          'type',
+          'price',
+          'quantity',
+          'status',
+          'filledQuantity',
+          'remainingQuantity',
+          'updatedAt',
+        ]}
+        onSelect={(row) => {
+          if (!['PENDING', 'OPEN', 'PARTIALLY_FILLED'].includes(String(row.status))) return;
+          if (window.confirm(`주문 ${row.id}의 남은 수량을 취소하시겠습니까?`))
+            void action.execute(async () => {
+              const result = await write(`/orders/${segment(String(row.id))}`, 'DELETE');
+              page.refresh();
+              window.dispatchEvent(new Event('vfandex:invalidate'));
+              return result;
+            });
+        }}
+      />
+      <p>열기 버튼에서 처리 중인 주문의 잔여 수량 취소를 검토할 수 있습니다.</p>
+      <PageButtons {...page} />
+      {action.result !== undefined && <DataView value={action.result} />}
+    </section>
+  );
 }

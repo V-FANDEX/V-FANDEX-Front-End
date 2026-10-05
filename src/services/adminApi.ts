@@ -1,34 +1,7 @@
 import type { AdminSection } from '../types/admin';
-import type {
-  AdminAiAccount,
-  AdminDashboard,
-  AiStrategyType,
-  Market,
-  MarketSimulationRunResult,
-  MarketSimulationSettings,
-  ScenarioApplyResult,
-  ScenarioAutomationProcessResult,
-  ScenarioAutomationRunResult,
-  ScenarioAutomationSettings,
-  SeasonResetResult,
-  Stock,
-} from '../types';
+import type { AdminAiAccount, AdminDashboard, AiStrategyType, Market, ScenarioApplyResult, ScenarioAutomationProcessResult, ScenarioAutomationRunResult, ScenarioAutomationSettings, SeasonResetResult, Stock } from '../types';
 import { apiClient, jsonBody, withQuery } from './apiClient';
-import {
-  mapAdminAiAccount,
-  mapAdminDashboard,
-  mapDividendSchedule,
-  mapMarket,
-  mapMarketSimulationRunResult,
-  mapMarketSimulationSettings,
-  mapScenarioApplyResult,
-  mapScenarioAutomationProcessResult,
-  mapScenarioAutomationRunResult,
-  mapScenarioAutomationSettings,
-  mapSeasonResetResult,
-  mapStock,
-  toNumber,
-} from './mappers';
+import { mapAdminAiAccount, mapAdminDashboard, mapDividendSchedule, mapMarket, mapScenarioApplyResult, mapScenarioAutomationProcessResult, mapScenarioAutomationRunResult, mapScenarioAutomationSettings, mapSeasonResetResult, mapStock, toNumber } from './mappers';
 
 export interface AdminActionPayload {
   section: AdminSection;
@@ -66,7 +39,7 @@ export interface AdminStockPayload {
   initialPrice: number;
   totalSupply: number;
   circulatingSupply?: number;
-  volatilityLevel?: string;
+  volatilityLevel?: number;
   dividendEnabled?: boolean;
   baseDividendRate?: number;
   isListed?: boolean;
@@ -138,13 +111,6 @@ export const adminApi = {
   updateUser: (id: string, body: Record<string, unknown>) =>
     apiClient<unknown>(`/admin/users/${id}`, { method: 'PATCH', body: jsonBody(body) }),
   recalculateRankings: () => apiClient<unknown>('/admin/rankings/recalculate', { method: 'POST' }),
-
-  getMarketSimulationSettings: async (): Promise<MarketSimulationSettings> =>
-    mapMarketSimulationSettings(await apiClient<unknown>('/admin/market-simulation/settings')),
-  updateMarketSimulationSettings: async (body: AdminMarketSimulationPayload): Promise<MarketSimulationSettings> =>
-    mapMarketSimulationSettings(await apiClient<unknown>('/admin/market-simulation/settings', { method: 'PATCH', body: jsonBody(body) })),
-  runMarketSimulation: async (): Promise<MarketSimulationRunResult> =>
-    mapMarketSimulationRunResult(await apiClient<unknown>('/admin/market-simulation/run', { method: 'POST' })),
 
   getScenarioAutomationSettings: async (): Promise<ScenarioAutomationSettings> =>
     mapScenarioAutomationSettings(await apiClient<unknown>('/admin/scenario-automation/settings')),
@@ -291,7 +257,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
         initialPrice: toNumber(values.initialPrice),
         totalSupply: toNumber(values.totalSupply ?? values.initialSupply),
         circulatingSupply: optionalNumber(values.circulatingSupply),
-        volatilityLevel: optionalString(values.volatility),
+        volatilityLevel: optionalValidatedNumber(values.volatility, '변동성', { min: 1, max: 10, integer: true }),
         dividendEnabled: values.dividendEnabled === true,
         baseDividendRate: optionalNumber(values.dividendRate),
         isListed: true,
@@ -312,8 +278,7 @@ async function submitAdminAction({ section, action, values }: AdminActionPayload
     }
     if (action === '종목 수정') {
       return adminApi.updateStock(requiredId(firstFilled(values.stockId, values.targetStock), '수정할 종목'), {
-        initialPrice: optionalNumber(values.manualPrice),
-        volatilityLevel: optionalSetting(values.volatility),
+        volatilityLevel: optionalValidatedNumber(values.volatility, '변동성', { min: 1, max: 10, integer: true }),
         baseDividendRate: optionalNumber(values.dividendRate),
         isListed: parseActiveState(values.activeState),
       });

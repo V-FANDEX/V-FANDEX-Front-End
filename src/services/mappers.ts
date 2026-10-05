@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import type {
   ConditionalOrder,
   AdminAiAccount,
@@ -55,6 +56,8 @@ export function mapUser(raw: unknown, extras?: Partial<UserAccount>): UserAccoun
     name: String(source.nickname ?? source.name ?? extras?.name ?? '팬덱스 유저'),
     role: mapRole(source.role ?? extras?.role),
     cash: toNumber(source.cash, extras?.cash ?? 0),
+    cashExact: source.cash === undefined ? extras?.cashExact : String(source.cash),
+    totalAssetValueExact: source.totalAssetValue === undefined ? extras?.totalAssetValueExact : String(source.totalAssetValue),
     initialCash: toNumber(source.initialCash, extras?.initialCash ?? 0),
     totalAssetValue: toNumber(source.totalAssetValue, extras?.totalAssetValue ?? 0),
     totalDividend: toNumber(
@@ -122,6 +125,7 @@ export function mapMarket(raw: unknown, stocks?: Stock[], index = 0): Market {
     icon: String(source.icon ?? source.iconUrl ?? defaultMarketIcons[index % defaultMarketIcons.length]),
     stockCount: Math.max(toNumber(source.stockCount ?? sourceCount.stocks), marketStocks.length),
     marketCap: toNumber(source.marketCap),
+    marketCapExact: String(source.marketCap ?? 0),
     changeRate: toNumber(source.changeRate ?? source.todayChangeRate),
     volume: toNumber(source.volume),
     metricsAvailable,
@@ -162,11 +166,16 @@ export function mapStock(raw: unknown): Stock {
     symbol: source.symbol ? String(source.symbol) : '',
     initialPrice: toNumber(source.initialPrice, currentPrice),
     price: currentPrice,
+    priceExact: String(source.currentPrice ?? source.initialPrice ?? 0),
+    sectorId: source.sectorId == null ? null : String(source.sectorId),
+    sectorRevision: typeof source.sectorRevision === 'number' ? source.sectorRevision : undefined,
     previousClose,
     changeRate,
     volume: toNumber(source.volume ?? source.tradeVolume),
     tradeValue: toNumber(source.tradeValue),
+    tradeValueExact: String(source.tradeValue ?? 0),
     marketCap: toNumber(source.marketCap),
+    marketCapExact: String(source.marketCap ?? 0),
     dividendEnabled: Boolean(source.dividendEnabled ?? false),
     dividendRate: toNumber(source.baseDividendRate ?? source.dividendRate),
     description: String(source.description ?? '등록된 설명이 없습니다.'),
@@ -219,6 +228,7 @@ export function mapRanking(raw: unknown): RankingEntry {
     role,
     rank: toNumber(source.rank, 0),
     totalAssets: toNumber(source.totalAssetValue ?? source.totalAssets ?? source.assetValue),
+    totalAssetsExact: String(source.totalAssetValue ?? source.totalAssets ?? source.assetValue ?? 0),
     cash: toNumber(source.cash),
     returnRate: toNumber(source.profitRate ?? source.returnRate),
     realizedProfit: toNumber(source.realizedProfit),
@@ -282,7 +292,8 @@ export function mapTransaction(raw: unknown): Transaction {
     type,
     quantity,
     price,
-    total: toNumber(source.totalAmount ?? source.total ?? source.amount, price * quantity),
+    total: new Decimal(String(source.totalAmount ?? source.total ?? source.amount ?? new Decimal(String(source.price ?? source.executedPrice ?? source.stockPrice ?? stock?.priceExact ?? 0)).mul(quantity))).toNumber(),
+    totalExact: new Decimal(String(source.totalAmount ?? source.total ?? source.amount ?? new Decimal(String(source.price ?? source.executedPrice ?? source.stockPrice ?? stock?.priceExact ?? 0)).mul(quantity))).toFixed(),
     createdAt: String(source.createdAt ?? source.claimedAt ?? new Date().toISOString()),
   };
 }
@@ -293,6 +304,7 @@ export function mapDividend(raw: unknown): Transaction {
     ...tx,
     type: 'dividend',
     total: toNumber(asRecord(raw).amount ?? asRecord(raw).totalAmount ?? tx.total),
+    totalExact: String(asRecord(raw).amount ?? asRecord(raw).totalAmount ?? tx.totalExact ?? 0),
     createdAt: String(asRecord(raw).claimedAt ?? asRecord(raw).createdAt ?? tx.createdAt),
   };
 }

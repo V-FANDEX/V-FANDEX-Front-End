@@ -1,3 +1,5 @@
+> 과거 프론트 기록입니다. 2026-10-04 현재 구현·검증 기준은 [최신 인계 문서](FRONTEND_HANDOFF_2026-10-04.md)를 확인하세요. 이 문서를 최신 백엔드 API 계약으로 사용하지 마세요.
+
 # 다음 작업용 Codex 프롬프트
 
 V-FANDEX frontend 저장소에서 현재 구조와 브랜드를 유지하며 후속 작업을 진행하라. 먼저 `docs/FRONTEND_ANALYSIS.md`와 `docs/BACKEND_REQUIRED.md`를 읽고 실제 Backend 최신 계약을 다시 확인하라. Git commit/push는 요청받지 않으면 하지 마라.

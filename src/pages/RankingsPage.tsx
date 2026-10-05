@@ -1,41 +1,39 @@
-import { Bot, Trophy, Users } from 'lucide-react';
-import { EmptyState, RankingCard, StatCard } from '../components/Cards';
-import { useFandexStore } from '../store/useFandexStore';
-import { currency } from '../utils/format';
-
+import { useState } from 'react';
+import { useRemote } from '../hooks/useRemote';
+import { segment } from '../services/contractApi';
+import type { Row } from '../types/contracts';
+import { ErrorNotice, Field, Table } from '../components/admin/Shared';
 export function RankingsPage() {
-  const { rankings, user } = useFandexStore();
-  const mine = rankings.find((entry) => entry.id === user?.id);
-  const bestReturn = rankings.length ? Math.max(...rankings.map((entry) => entry.returnRate)) : 0;
-  const userRankings = rankings.filter((entry) => entry.role !== 'ai');
-  const aiRankings = rankings.filter((entry) => entry.role === 'ai');
-
+  const seasons = useRemote<Row[]>('/seasons');
+  const [seasonId, setSeason] = useState('');
+  const rankings = useRemote<Row[]>(seasonId ? `/rankings/season/${segment(seasonId)}` : '/rankings');
   return (
-    <div className="page">
+    <div className="page contract-workspace">
       <header className="page-header">
-        <span className="eyebrow">Season Ranking</span>
-        <h1>랭킹</h1>
-        <p>사용자와 AI 계정이 같은 기준으로 경쟁합니다.</p>
+        <h1>시즌 순위</h1>
+        <p>종료 시즌은 저장된 순위이며 현재 계정값으로 덮어쓰지 않습니다.</p>
       </header>
-      <section className="stat-grid">
-        <StatCard label="내 순위" value={`#${mine?.rank ?? '-'}`} hint={mine ? currency(mine.totalAssets) : undefined} />
-        <StatCard label="1위 자산" value={currency(rankings[0]?.totalAssets ?? 0)} />
-        <StatCard label="최고 수익률" value={`${bestReturn.toFixed(1)}%`} />
-        <StatCard label="시즌별 랭킹" value="현재 시즌" hint="총 자산 기준" />
-      </section>
-      <section className="ranking-tabs">
-        <article className="panel">
-          <div className="panel-title"><Trophy size={20} /><h2>전체 랭킹</h2></div>
-          {rankings.length ? rankings.map((entry) => <RankingCard key={entry.id} entry={entry} highlight={entry.id === user?.id} />) : <EmptyState text="아직 랭킹 데이터가 없습니다." />}
-        </article>
-        <article className="panel">
-          <div className="panel-title"><Users size={20} /><h2>사용자 랭킹</h2></div>
-          {userRankings.length ? userRankings.map((entry) => <RankingCard key={entry.id} entry={entry} highlight={entry.id === user?.id} />) : <EmptyState text="사용자 랭킹이 비어 있습니다." />}
-        </article>
-        <article className="panel">
-          <div className="panel-title"><Bot size={20} /><h2>AI 계정 랭킹</h2></div>
-          {aiRankings.length ? aiRankings.map((entry) => <RankingCard key={entry.id} entry={entry} />) : <EmptyState text="AI 계정 랭킹이 비어 있습니다." />}
-        </article>
+      <section className="panel">
+        <Field label="시즌">
+          <select value={seasonId} onChange={(e) => setSeason(e.target.value)}>
+            <option value="">현재 시즌</option>
+            {seasons.data?.map((s) => (
+              <option key={String(s.id)} value={String(s.id)}>
+                {String(s.name)} · {String(s.status)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <button onClick={rankings.refresh}>새로고침</button>
+        <ErrorNotice error={seasons.error ?? rankings.error} />
+        <Table
+          rows={(rankings.data ?? []).map((row) => ({
+            ...row,
+            nickname: (row.user as Row)?.nickname,
+            role: (row.user as Row)?.role,
+          }))}
+          columns={['rank', 'nickname', 'role', 'totalAssetValue', 'profitRate']}
+        />
       </section>
     </div>
   );

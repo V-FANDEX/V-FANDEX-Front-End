@@ -1,78 +1,62 @@
-import { CalendarClock, Gift, RotateCcw } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useRemote, useAction } from '../hooks/useRemote';
+import { write } from '../services/contractApi';
 import { useFandexStore } from '../store/useFandexStore';
-import { currency, dateTime } from '../utils/format';
-
+import type { Row } from '../types/contracts';
+import { DataView, ErrorNotice, Field, Table } from '../components/admin/Shared';
 export function DividendsPage() {
-  const { user, stocks, transactions, dividendSchedule, claimDividend } = useFandexStore();
-  const dividendStocks = user?.holdings
-    .map((holding) => ({ holding, stock: holding.stock ?? stocks.find((stock) => stock.id === holding.stockId) }))
-    .filter((row) => row.stock?.dividendEnabled) ?? [];
-  const dividendTx = transactions.filter((tx) => tx.type === 'dividend');
-
+  const user = useFandexStore((s) => s.user);
   return (
-    <div className="page">
+    <div className="page contract-workspace">
       <header className="page-header">
-        <span className="eyebrow">Recovery System</span>
-        <h1>배당금 센터</h1>
-        <p>관리자가 설정한 지급 스케줄에 따라 배당금이 자동 지급됩니다.</p>
+        <h1>배당</h1>
+        <p>실제 지급 기록을 표시합니다. 청구 가능 여부와 지급 금액은 서버 정책으로 결정됩니다.</p>
       </header>
-      <section className="panel dividend-schedule-panel">
-        <div className="panel-title"><CalendarClock size={20} /><h2>자동 지급 스케줄</h2></div>
-        <div className="schedule-summary">
-          <span>상태 <strong>{dividendSchedule?.status === 'active' ? '활성' : '일시정지'}</strong></span>
-          <span>지급 주기 <strong>{formatFrequency(dividendSchedule?.frequency)}</strong></span>
-          <span>지급 시각 <strong>{dividendSchedule?.payoutTime} {dividendSchedule?.timezone}</strong></span>
-          <span>다음 지급 <strong>{dividendSchedule ? dateTime(dividendSchedule.nextRunAt ?? dividendSchedule.nextPayoutAt) : '-'}</strong></span>
-          <span>최근 지급 <strong>{dividendSchedule?.lastRunAt ? dateTime(dividendSchedule.lastRunAt) : '-'}</strong></span>
-        </div>
-        <div className="dividend-schedule-actions">
-          <div>
-            <span>수동 지급 요청</span>
-            <strong>시스템 배당</strong>
-          </div>
-          <button className="secondary-button" type="button" onClick={() => void claimDividend()}>
-            <RotateCcw size={16} /> 시스템 배당 수령 요청
-          </button>
-        </div>
-      </section>
-      <section className="dividend-grid">
-        {dividendStocks.map(({ holding, stock }) => {
-          if (!stock) return null;
-          const expected = Math.round(holding.quantity * stock.price * (stock.dividendRate / 100) * 0.1);
-          return (
-            <article className="dividend-card" key={stock.id}>
-              <div className="panel-title"><Gift size={20} /><h2>{stock.name}</h2></div>
-              <p>기본 배당률 {stock.dividendRate}% · 다음 자동 지급 예상액 {currency(expected)}</p>
-              <div className="dividend-card-actions">
-                <span className="pill cyan">자동 지급 예정</span>
-                <button className="ghost-button" type="button" onClick={() => void claimDividend(stock.id)}>
-                  종목 배당 수령
-                </button>
-              </div>
-            </article>
-          );
-        })}
-      </section>
-      <section className="panel">
-        <div className="panel-title"><RotateCcw size={20} /><h2>배당 수령 기록</h2></div>
-        {dividendTx.map((tx, index) => {
-          const stock = tx.stock ?? stocks.find((item) => item.id === tx.stockId);
-          return (
-            <div className="history-row" key={tx.id}>
-              <span>{stock?.name ?? '시스템 배당'}</span>
-              <strong>{currency(tx.total)}</strong>
-              <small>{index + 1}회차 · {dateTime(tx.createdAt)}</small>
-            </div>
-          );
-        })}
-      </section>
+      {user ? <Dividends key={user.id} /> : <p>로그인 후 조회할 수 있습니다.</p>}
     </div>
   );
 }
-
-function formatFrequency(frequency?: string) {
-  if (frequency === 'daily') return '매일';
-  if (frequency === 'weekly') return '매주';
-  if (frequency === 'monthly') return '매월';
-  return '-';
+function Dividends() {
+  const rows = useRemote<Row[]>('/dividends/me'),
+    action = useAction();
+  const stocks = useFandexStore((s) => s.stocks);
+  const [stockId, setStock] = useState('');
+  const refresh = rows.refresh;
+  useEffect(() => {
+    window.addEventListener('vfandex:invalidate', refresh);
+    return () => window.removeEventListener('vfandex:invalidate', refresh);
+  }, [refresh]);
+  return (
+    <section className="panel">
+      <Field label="청구 대상">
+        <select value={stockId} onChange={(e) => setStock(e.target.value)}>
+          <option value="">시스템 배당</option>
+          {stocks
+            .filter((s) => s.dividendEnabled)
+            .map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+        </select>
+      </Field>
+      <button
+        disabled={action.busy}
+        onClick={() =>
+          void action.execute(async () => {
+            const result = await write('/dividends/claim', 'POST', stockId ? { stockId } : {});
+            refresh();
+            window.dispatchEvent(new Event('vfandex:invalidate'));
+            return result;
+          })
+        }
+      >
+        배당 청구
+      </button>
+      <button onClick={refresh}>새로고침</button>
+      <ErrorNotice error={rows.error ?? action.error} />
+      <Table rows={rows.data ?? []} columns={['id', 'stockId', 'amount', 'createdAt']} />
+      {action.result !== undefined && <DataView value={action.result} />}
+    </section>
+  );
 }

@@ -1,8 +1,12 @@
 import { Search } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { EmptyState, StockRow } from '../components/Cards';
-import { fandexApi } from '../services/fandexApi';
+import { usePage, useRemote } from '../hooks/useRemote';
+import { withQuery } from '../services/apiClient';
+import { mapStock } from '../services/mappers';
+import type { Identified, Sector } from '../types/contracts';
+import { ErrorNotice, PageButtons } from '../components/admin/Shared';
 import { useFandexStore } from '../store/useFandexStore';
 import type { Stock } from '../types';
 
@@ -11,34 +15,17 @@ type FilterKey = 'all' | 'up' | 'down' | 'owned' | 'favorite';
 
 export function StockListPage() {
   const { marketId } = useParams();
-  const { markets, stocks, user, toggleFavorite } = useFandexStore();
+  const { markets, user, toggleFavorite } = useFandexStore();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortKey>('volume');
   const [filter, setFilter] = useState<FilterKey>('all');
-  const [remoteStocks, setRemoteStocks] = useState<Stock[]>([]);
-  const [loadingStocks, setLoadingStocks] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-  const market = markets.find((item) => item.id === marketId);
-  const sourceStocks = remoteStocks.length || loadingStocks
-    ? remoteStocks
-    : stocks.filter((stock) => stock.marketId === marketId);
-
-  useEffect(() => {
-    if (!marketId) return;
-    setLoadingStocks(true);
-    setLoadError(false);
-    const request = query.trim()
-      ? fandexApi.getStocks({ marketId, search: query.trim() })
-      : fandexApi.getMarketStocks(marketId);
-
-    request
-      .then(setRemoteStocks)
-      .catch(() => {
-        setRemoteStocks([]);
-        setLoadError(true);
-      })
-      .finally(() => setLoadingStocks(false));
-  }, [marketId, query]);
+  const [sectorId, setSector] = useState('');
+  const sectors = useRemote<Sector[]>('/sectors');
+  const page = usePage<Identified>(withQuery('/stocks/page', { marketId, search: query.trim(), sectorId, limit: 50 }));
+  const market = markets.find(item => item.id === marketId);
+  const sourceStocks = useMemo(() => page.items.map(mapStock), [page.items]);
+  const loadingStocks = page.loading;
+  const loadError = Boolean(page.error);
 
   const visibleStocks = useMemo(() => {
     return sourceStocks
@@ -63,10 +50,12 @@ export function StockListPage() {
         <p>{market.description}</p>
       </header>
       <section className="panel">
+        <ErrorNotice error={page.error ?? sectors.error} />
         <div className="toolbar">
+          <select aria-label="섹터 필터" value={sectorId} onChange={e => setSector(e.target.value)}><option value="">전체 섹터</option>{sectors.data?.map(sector => <option key={sector.id} value={sector.id}>{sector.name}</option>)}</select>
           <label className="search-box">
             <Search size={18} />
-            <input placeholder="종목명 또는 심볼 검색" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <input maxLength={120} placeholder="종목명 또는 심볼 검색" value={query} onChange={(event) => setQuery(event.target.value)} />
           </label>
           <select value={sort} onChange={(event) => setSort(event.target.value as SortKey)}>
             <option value="price">가격순</option>
@@ -102,6 +91,7 @@ export function StockListPage() {
             />
           )) : <EmptyState text="조건에 맞는 종목이 없습니다." />}
         </div>
+        <PageButtons {...page} />
       </section>
     </div>
   );

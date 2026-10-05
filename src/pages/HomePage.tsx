@@ -1,3 +1,5 @@
+import Decimal from 'decimal.js';
+import { money } from '../utils/contracts';
 import { Activity, ArrowRight, BarChart3, Flame, Gem, LineChart, Star, Trophy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -8,16 +10,11 @@ import { compact, currency } from '../utils/format';
 import { getScenarioTargetLabels } from '../utils/scenarioLabels';
 
 export function HomePage() {
-  const { markets, stocks, user, season, scenarios, rankings, toggleFavorite } = useFandexStore();
+  const { marketIndices, markets, stocks, user, season, scenarios, rankings, toggleFavorite } = useFandexStore();
   const metricMarkets = markets.filter((market) => market.metricsAvailable);
-  const totalMarketCap = metricMarkets.reduce((sum, market) => sum + market.marketCap, 0);
+  const totalMarketCap = metricMarkets.reduce((sum, market) => sum.plus(market.marketCapExact ?? 0), new Decimal(0)).toFixed();
   const totalVolume = metricMarkets.reduce((sum, market) => sum + market.volume, 0);
-  const assetValue =
-    user?.totalAssetValue ??
-    user?.holdings.reduce((sum, holding) => {
-      const stock = holding.stock ?? stocks.find((item) => item.id === holding.stockId);
-      return sum + (stock?.price ?? 0) * holding.quantity;
-    }, user.cash) ?? 0;
+  const assetValue = user?.totalAssetValueExact ?? user?.cashExact;
   const gainers = [...stocks].sort((a, b) => b.changeRate - a.changeRate).slice(0, 3);
   const losers = [...stocks].sort((a, b) => a.changeRate - b.changeRate).slice(0, 3);
   const volumeLeaders = [...stocks].sort((a, b) => b.volume - a.volume).slice(0, 5);
@@ -47,10 +44,11 @@ export function HomePage() {
         </div>
       </section>
 
+      {marketIndices.length > 0 && <section className="stat-grid">{marketIndices.map(index => <StatCard key={String(index.marketId)} label={`${index.name} 지수`} value={index.value == null ? '—' : String(index.value)} hint={String(index.method)} />)}</section>}
       <section className="stat-grid">
         <StatCard label="전체 시가총액" value={metricMarkets.length ? currency(totalMarketCap) : '-'} hint={`${markets.length}개 장`} />
         <StatCard label="오늘 거래량" value={metricMarkets.length ? compact(totalVolume) : '-'} hint={metricMarkets.length ? 'Backend 시장 집계' : '시장 지수 API 연동 대기'} />
-        <StatCard label="내 총 자산" value={currency(assetValue)} hint={`가상 현금 ${currency(user?.cash ?? 0)}`} />
+        <StatCard label="내 총 자산" value={money(assetValue)} hint={`가상 현금 ${money(user?.cashExact)}`} />
         <StatCard label="급등 종목" value={gainers[0]?.name ?? '-'} hint={gainers[0] ? `${gainers[0].changeRate.toFixed(2)}%` : undefined} />
       </section>
 

@@ -1,4 +1,5 @@
-export const currency = (value: number) => `₩${Math.round(value).toLocaleString('ko-KR')}`;
+import { money } from './contracts';
+export const currency = (value: string | number) => money(value);
 
 export const compact = (value: number) =>
   new Intl.NumberFormat('ko-KR', { notation: 'compact', maximumFractionDigits: 1 }).format(value);

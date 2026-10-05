@@ -4595,3 +4595,29 @@ textarea {
     display: none;
   }
 }
+
+/* Contract-backed administrative workspaces reuse the existing panels and colors. */
+.contract-workspace { display: grid; gap: 20px; min-width: 0; }
+.contract-workspace .panel, .admin-content > .panel { min-width: 0; overflow: hidden; }
+.contract-form fieldset, .contract-workspace fieldset { border: 0; padding: 0; min-width: 0; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 16px 0; }
+.contract-workspace p, .admin-content > .panel p { line-height: 1.7; overflow-wrap: anywhere; }
+.contract-workspace select[multiple] { min-height: 140px; }
+.table-scroll { overflow-x: auto; margin: 18px 0; }
+.contract-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.contract-table th, .contract-table td { padding: 12px; text-align: left; border-bottom: 1px solid #ffffff18; vertical-align: top; }
+.contract-table th { color: #a2b4cc; white-space: nowrap; }
+.data-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 12px; margin: 14px 0; }
+.data-grid > div { min-width: 0; padding: 8px; background: #ffffff04; border-radius: 6px; }
+.data-grid dt { font-size: 12px; color: #9cacc3; overflow-wrap: anywhere; }
+.data-grid dd { margin: 5px 0 0; overflow-wrap: anywhere; }
+.data-grid .data-grid { display: block; }
+.data-list { padding-left: 20px; }
+.result-card, .detail-drawer { border: 1px solid #ffffff22; border-radius: 12px; padding: 18px; margin-top: 16px; }
+.json-editor { width: 100%; min-height: 320px; font-family: monospace; }
+.selection-row { display: flex; align-items: flex-start; gap: 12px; padding: 8px; overflow-wrap: anywhere; }
+.selection-row input { width: auto; }
+.contract-workspace button { cursor: pointer; }
+.contract-workspace button:disabled { cursor: not-allowed; opacity: .5; }
+.contract-workspace .segmented { flex-wrap: wrap; }
+.contract-workspace .form-error { white-space: pre-wrap; overflow-wrap: anywhere; }

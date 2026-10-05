@@ -1,4 +1,7 @@
 export type AdminSection =
+  | 'sectors'
+  | 'operations'
+  | 'retention'
   | 'overview'
   | 'season'
   | 'markets'

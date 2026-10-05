@@ -1,70 +1,119 @@
-import { History, PieChart } from 'lucide-react';
-import { EmptyState, StatCard } from '../components/Cards';
+import { useEffect, useState } from 'react';
+import Decimal from 'decimal.js';
+import { useRemote } from '../hooks/useRemote';
+import { segment } from '../services/contractApi';
 import { useFandexStore } from '../store/useFandexStore';
-import { currency, dateTime } from '../utils/format';
-
+import type { Row } from '../types/contracts';
+import { DataView, ErrorNotice, Field, Table } from '../components/admin/Shared';
+import { money } from '../utils/contracts';
 export function PortfolioPage() {
-  const { user, stocks, transactions } = useFandexStore();
-  const holdingRows = user?.holdings.flatMap((holding) => {
-    const stock = holding.stock ?? stocks.find((item) => item.id === holding.stockId);
-    if (!stock) return [];
-    const value = stock.price * holding.quantity;
-    const pnl = (stock.price - holding.averagePrice) * holding.quantity;
-    const returnRate = holding.averagePrice > 0 ? ((stock.price - holding.averagePrice) / holding.averagePrice) * 100 : 0;
-    return [{ ...holding, stock, value, pnl, returnRate }];
-  }) ?? [];
-  const stockValue = holdingRows.reduce((sum, item) => sum + item.value, 0);
-  const totalAssetValue = user?.totalAssetValue ?? (user?.cash ?? 0) + stockValue;
-
+  const user = useFandexStore((s) => s.user);
   return (
-    <div className="page">
+    <div className="page contract-workspace">
       <header className="page-header">
-        <span className="eyebrow">Portfolio</span>
         <h1>내 포트폴리오</h1>
-        <p>보유 종목, 현금, 손익, 배당 기록을 한 화면에서 확인합니다.</p>
       </header>
-      <section className="stat-grid">
-        <StatCard label="가상 현금" value={currency(user?.cash ?? 0)} />
-        <StatCard label="총 평가 자산" value={currency(totalAssetValue)} />
-        <StatCard label="총 배당 수령액" value={currency(user?.totalDividend ?? 0)} />
-        <StatCard label="보유 종목 수" value={`${holdingRows.length}개`} />
-      </section>
-      <section className="dashboard-grid">
-        <article className="panel wide">
-          <div className="panel-title"><PieChart size={20} /><h2>자산 변화 그래프</h2></div>
-          <EmptyState text="자산 히스토리 API가 제공되면 실제 시계열을 표시합니다." />
-        </article>
-        <article className="panel">
-          <div className="panel-title"><History size={20} /><h2>거래 내역</h2></div>
-          {transactions.map((tx) => {
-            const stock = tx.stock ?? stocks.find((item) => item.id === tx.stockId);
-            return (
-              <div className="history-row" key={tx.id}>
-                <span>{stock?.name ?? '시스템'}</span>
-                <strong>{tx.type === 'buy' ? '매수' : tx.type === 'sell' ? '매도' : '배당'}</strong>
-                <small>{currency(tx.total)} · {dateTime(tx.createdAt)}</small>
-              </div>
-            );
+      {user ? <Portfolio key={user.id} /> : <p>로그인 후 조회할 수 있습니다.</p>}
+    </div>
+  );
+}
+function Portfolio() {
+  const portfolio = useRemote<Row>('/portfolio/me'),
+    trades = useRemote<Row[]>('/trades/me'),
+    dividends = useRemote<Row[]>('/dividends/me'),
+    seasons = useRemote<Row[]>('/seasons');
+  const [seasonId, setSeason] = useState('');
+  const snapshot = useRemote<Row>(seasonId ? `/seasons/${segment(seasonId)}/me` : undefined);
+  const { refresh } = portfolio;
+  const refreshTrades = trades.refresh,
+    refreshDividends = dividends.refresh;
+  useEffect(() => {
+    const update = () => {
+      refresh();
+      refreshTrades();
+      refreshDividends();
+    };
+    window.addEventListener('vfandex:invalidate', update);
+    return () => window.removeEventListener('vfandex:invalidate', update);
+  }, [refresh, refreshTrades, refreshDividends]);
+  const holdings = (portfolio.data?.holdings as Row[] | undefined) ?? [];
+  return (
+    <>
+      <ErrorNotice
+        error={portfolio.error ?? trades.error ?? dividends.error ?? seasons.error ?? snapshot.error}
+      />
+      <section className="panel">
+        <h2>현재 자산</h2>
+        <button onClick={refresh}>현재 자산 새로고침</button>
+        <dl className="data-grid">
+          {[
+            'cash',
+            'reservedCash',
+            'availableCash',
+            'stockValue',
+            'totalAssetValue',
+            'realizedPnl',
+            'unrealizedPnl',
+          ].map((key) => (
+            <div key={key}>
+              <dt>{key}</dt>
+              <dd>{money(portfolio.data?.[key] as string | undefined)}</dd>
+            </div>
+          ))}
+        </dl>
+        <Table
+          rows={holdings.map((h) => {
+            const stock = h.stock as Row;
+            const quantity = String(h.quantity);
+            const value = new Decimal(String(stock.currentPrice)).mul(quantity);
+            const basis = new Decimal(String(h.averageBuyPrice)).mul(quantity);
+            return {
+              ...h,
+              name: stock.name,
+              currentPrice: stock.currentPrice,
+              value: value.toFixed(),
+              pnl: value.minus(basis).toFixed(),
+              returnPct: basis.gt(0) ? value.minus(basis).div(basis).mul(100).toFixed(4) : null,
+            };
           })}
-        </article>
+          columns={[
+            'name',
+            'quantity',
+            'reservedQuantity',
+            'averageBuyPrice',
+            'currentPrice',
+            'value',
+            'pnl',
+            'returnPct',
+          ]}
+        />
       </section>
       <section className="panel">
-        <div className="stock-table portfolio-table">
-          <div className="stock-row table-head">
-            <span>종목</span><span>보유 수량</span><span>평균 매수가</span><span>현재가</span><span>평가 손익</span><span>수익률</span>
-          </div>
-          {holdingRows.length ? holdingRows.map((row) => (
-            <div className="stock-row" key={row.stockId}>
-              <strong className="portfolio-name">{row.stock.name}</strong>
-              <span className="portfolio-metric" data-label="보유 수량">{row.quantity.toLocaleString('ko-KR')}주</span>
-              <span className="portfolio-metric" data-label="평균 매수가">{currency(row.averagePrice)}</span>
-              <span className="portfolio-metric" data-label="현재가">{currency(row.stock.price)}</span>
-              <strong className={`portfolio-metric ${row.pnl >= 0 ? 'positive' : 'negative'}`} data-label="평가 손익">{currency(row.pnl)}</strong>
-              <span className={`portfolio-metric ${row.returnRate >= 0 ? 'positive' : 'negative'}`} data-label="수익률">{row.returnRate.toFixed(2)}%</span>
-            </div>
-          )) : <EmptyState text="아직 보유 중인 종목이 없습니다." />}
-        </div>
+        <h2>실제 거래 / 배당</h2>
+        <Table
+          rows={trades.data ?? []}
+          columns={['id', 'stockId', 'type', 'quantity', 'price', 'totalAmount', 'createdAt']}
+        />
+        <Table rows={dividends.data ?? []} columns={['id', 'amount', 'createdAt']} />
       </section>
-    </div>
+      <section className="panel">
+        <h2>시즌 자산 스냅샷</h2>
+        <Field label="시즌">
+          <select value={seasonId} onChange={(e) => setSeason(e.target.value)}>
+            <option value="">시즌 선택</option>
+            {seasons.data?.map((s) => (
+              <option key={String(s.id)} value={String(s.id)}>
+                {String(s.name)} · {String(s.status)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <p>
+          종료 시즌은 서버의 동결 기록을 표시합니다. 현재 자산으로 다시 계산하지 않습니다. 기록이 없으면
+          사용할 수 없음으로 표시됩니다.
+        </p>
+        <DataView value={snapshot.data} />
+      </section>
+    </>
   );
 }

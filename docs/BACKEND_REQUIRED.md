@@ -1,3 +1,5 @@
+> 과거 프론트 기록입니다. 2026-10-04 현재 구현·검증 기준은 [최신 인계 문서](FRONTEND_HANDOFF_2026-10-04.md)를 확인하세요. 이 문서를 최신 백엔드 API 계약으로 사용하지 마세요.
+
 # V-FANDEX Backend 요구사항
 
 확인 기준: `V-FANDEX/V-FANDEX-Back-End` `main` (`c70ce35`, 2026-09-12 확인).
